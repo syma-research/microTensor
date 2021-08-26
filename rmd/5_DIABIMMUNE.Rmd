@@ -1,0 +1,263 @@
+---
+title: "Fit DIABIMMUNE"
+author: "Siyuan Ma"
+output: html_document
+---
+
+```{r set up}
+rm(list = ls())
+library(magrittr)
+library(ggplot2)
+source("R/sourceDir.R")
+sourceDir("R/")
+
+dir_output <- "results/DIABIMMUNE"
+dir.create(dir_output, showWarnings = TRUE, recursive = TRUE)
+```
+
+```{r fit}
+load("data/DIABIMMUNE/X_array.RData")
+
+set.seed(0)
+l_fit_microTensor <- list()
+for(i in seq(1, 5)) {
+  l_fit_microTensor[[i]] <- microTensor(
+    X = X_array, R = 3, 
+    nn_t = TRUE, ortho_m = TRUE,
+    weighted = TRUE,
+    control = list(L_init = 2,
+                   gamma = 2,
+                   maxit = 1000,
+                   verbose = TRUE,
+                   debug_dir = paste0(dir_output, "/fit/", i)))
+}
+fit_microTensor <- l_fit_microTensor %>% 
+  purrr::map_dbl(~ min(.x$fitting$obj)) %>% 
+  {order(.)[1]} %>% 
+  {l_fit_microTensor[[.]]}
+save(fit_microTensor, file = paste0(dir_output, "/fit_microTensor.RData"))
+
+l_fit_ctf <- list()
+for(i in seq(1, 5)) {
+  l_fit_ctf[[i]] <- ctf(
+    X = X_array, R = 3)
+}
+fit_ctf <- l_fit_ctf %>% 
+  purrr::map_dbl(~ min(.x$fitting$obj)) %>% 
+  {order(.)[1]} %>% 
+  {l_fit_ctf[[.]]}
+save(fit_ctf, file = paste0(dir_output, "/fit_ctf.RData"))
+
+fit_pca <- pca(X_array, R = 3)
+save(fit_pca, file = paste0(dir_output, "/fit_pca.RData"))
+```
+
+```{r visualization}
+load(paste0(dir_output, "/fit_microTensor.RData"))
+load(paste0(dir_output, "/fit_ctf.RData"))
+load(paste0(dir_output, "/fit_pca.RData"))
+load("data/DIABIMMUNE/df_samples.RData")
+load("data/DIABIMMUNE/X_array.RData")
+feature_names <- dimnames(X_array)[[1]]
+subject_names <- dimnames(X_array)[[2]]
+time_names <- dimnames(X_array)[[3]]
+
+mat_tax <- feature_names %>% 
+  stringr::str_split_fixed(stringr::fixed("|"), n = 6)
+
+percs <- fit_microTensor$lambda^2 / sum(fit_microTensor$lambda^2) * 100
+ps <- c(1, 2) %>% 
+  purrr::map(function(r) {
+    # feature
+    df_m <- create_loading(fit_microTensor,
+                           feature_names = feature_names,
+                           subject_names = subject_names,
+                           time_names = time_names,
+                           class = "feature") %>% 
+      dplyr::mutate(
+        feature_plot = 
+          betterGeneraNames(mat_tax[, 3],
+                            mat_tax[, 4],
+                            mat_tax[, 5],
+                            mat_tax[, 6])) %>% 
+      dplyr::mutate(m = !!sym(paste0("Axis ", r)))
+    
+    df_plot <- rbind(
+      df_m %>% 
+        dplyr::arrange(-df_m[["m"]]) %>% 
+        dplyr::slice(seq_len(5)),
+      df_m %>% 
+        dplyr::arrange(df_m[["m"]]) %>% 
+        dplyr::slice(seq_len(5)) %>% 
+        {.[seq(5, 1), ]}
+    ) %>% 
+      dplyr::mutate(feature_plot = factor(feature_plot, 
+                                          levels = rev(feature_plot)))
+    
+    p_feature <- df_plot %>% 
+      ggplot(aes(y = m, x = feature_plot)) +
+      geom_bar(stat = "identity") +
+      coord_flip() +
+      theme_bw() +
+      theme(axis.title.y = element_blank()) +
+      ylab("Feature loading") +
+      ggtitle(" ")
+    
+    # subject
+    tb_loading <- create_loading(fit_decomp = fit_microTensor,
+                                 feature_names = feature_names,
+                                 subject_names = subject_names,
+                                 time_names = time_names,
+                                 class = "subject")
+    tb_loading <- tb_loading %>% 
+      dplyr::left_join(df_samples %>% 
+                         dplyr::group_by(subjectid) %>% 
+                         dplyr::slice(1) %>% 
+                         dplyr::ungroup(), 
+                       by = c("Subject" = "subjectid")) %>% 
+      dplyr::mutate(Csection = ifelse(csection,
+                                      "C-section",
+                                      "Vaginal"),
+                    Loading = !!sym(paste0("Axis ", r)))
+    p_subject <- tb_loading %>% 
+      ggplot(aes(x = Csection,
+                 y = Loading)) +
+      geom_boxplot(outlier.shape = NA) +
+      geom_point(position = position_jitter(width = 0.25)) +
+      theme_bw() +
+      xlab("") +
+      ylab("Subject loading") + 
+      ggtitle("")
+    
+     return(list(p_feature,
+                p_subject))
+  })
+
+
+p_main <- 
+  cowplot::plot_grid(ps[[1]][[1]], ps[[1]][[2]],
+                     nrow = 1,
+                     rel_widths = c(1, 0.6),
+                     labels = c(paste0("Axis ", 1,
+                                       " (", round(percs[1], 2),
+                                       "%)"),
+                                ""))
+ggsave(p_main, file = "figures/figure7/figure_DIABIMMUNE.pdf",
+       width = 8, height = 4)
+```
+
+```{r supplementals}
+p_supps <- list(fit_pca,
+                fit_ctf) %>% 
+  purrr::map2(
+    c("PCA", "CTF"),
+    function(fit_decomp,
+             method) {
+      percs <- fit_decomp$lambda^2 / sum(fit_decomp$lambda^2) * 100
+      ps <- c(1, 2) %>% 
+        purrr::map(function(r) {
+          # feature
+          df_m <- create_loading(fit_decomp,
+                                 feature_names = feature_names,
+                                 subject_names = subject_names,
+                                 time_names = time_names,
+                                 class = "feature") %>% 
+            dplyr::mutate(
+              feature_plot = 
+                betterGeneraNames(mat_tax[, 3],
+                                  mat_tax[, 4],
+                                  mat_tax[, 5],
+                                  mat_tax[, 6])) %>% 
+            dplyr::mutate(m = !!sym(paste0("Axis ", r)))
+          
+          df_plot <- rbind(
+            df_m %>% 
+              dplyr::arrange(-df_m[["m"]]) %>% 
+              dplyr::slice(seq_len(5)),
+            df_m %>% 
+              dplyr::arrange(df_m[["m"]]) %>% 
+              dplyr::slice(seq_len(5)) %>% 
+              {.[seq(5, 1), ]}
+          ) %>% 
+            dplyr::mutate(feature_plot = factor(feature_plot, 
+                                                levels = rev(feature_plot)))
+          
+          p_feature <- df_plot %>% 
+            ggplot(aes(y = m, x = feature_plot)) +
+            geom_bar(stat = "identity") +
+            coord_flip() +
+            theme_bw() +
+            theme(axis.title.y = element_blank()) +
+            ylab("Feature loading") +
+            ggtitle(" ")
+          
+          # subject
+          tb_loading <- create_loading(fit_decomp = fit_decomp,
+                                       feature_names = feature_names,
+                                       subject_names = subject_names,
+                                       time_names = time_names,
+                                       class = "subject")
+          tb_loading <- tb_loading %>% 
+            dplyr::left_join(df_samples %>% 
+                               dplyr::group_by(subjectid) %>% 
+                               dplyr::slice(1) %>% 
+                               dplyr::ungroup(), 
+                             by = c("Subject" = "subjectid")) %>% 
+            dplyr::mutate(Csection = ifelse(csection,
+                                            "C-section",
+                                            "Vaginal"),
+                          Loading = !!sym(paste0("Axis ", r)))
+          p_subject <- tb_loading %>% 
+            ggplot(aes(x = Csection,
+                       y = Loading)) +
+            geom_boxplot(outlier.shape = NA) +
+            geom_point(position = position_jitter(width = 0.25)) +
+            theme_bw() +
+            xlab("") +
+            ylab("Subject loading") + 
+            ggtitle("")
+          
+          return(list(p_feature,
+                      p_subject))
+        })
+      
+      p <- 
+        cowplot::plot_grid(ps[[1]][[1]], ps[[1]][[2]],
+                           nrow = 1,
+                           rel_widths = c(1, 0.6),
+                           labels = c(paste0("    Axis ", 1,
+                                             " (", round(percs[1], 2),
+                                             "%)"),
+                                      ""))
+      
+      return(p)
+    })
+
+p_supp <- cowplot::plot_grid(plotlist = p_supps,
+                             labels = c("A) PCA", "B) CTF"),
+                             ncol = 1)
+ggsave(p_supp, file = "figures/suppFigure/figure_DIABIMMUNE_supp.pdf",
+       width = 7, height = 5)
+```
+
+```{r testing}
+list(fit_microTensor, fit_pca, fit_ctf) %>% 
+  purrr::map(function(fit_decomp) {
+    tb_loading <- create_loading(fit_decomp = fit_decomp,
+                                 feature_names = feature_names,
+                                 subject_names = subject_names,
+                                 time_names = time_names,
+                                 class = "subject")
+    tb_loading <- tb_loading %>% 
+      dplyr::left_join(df_samples %>% 
+                         dplyr::group_by(subjectid) %>% 
+                         dplyr::slice(1) %>% 
+                         dplyr::ungroup(), 
+                       by = c("Subject" = "subjectid")) %>% 
+      dplyr::mutate(Csection = ifelse(csection,
+                                      "C-section",
+                                      "Vaginal"),
+                    Loading = `Axis 1`)
+    t.test(tb_loading$Loading[tb_loading$csection], tb_loading$Loading[!tb_loading$csection])
+  })
+```
