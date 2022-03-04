@@ -8,8 +8,6 @@ output: html_document
 rm(list = ls())
 library(magrittr)
 library(ggplot2)
-source("R/sourceDir.R")
-sourceDir("R/")
 dir_output <- "results/FARMM"
 dir.create(dir_output, showWarnings = TRUE, recursive = TRUE)
 ```
@@ -17,18 +15,19 @@ dir.create(dir_output, showWarnings = TRUE, recursive = TRUE)
 ```{r fit}
 load("data/FARMM/X_array.RData")
 
-set.seed(0)
 l_fit_microTensor <- list()
 for(i in seq(1, 5)) {
-  l_fit_microTensor[[i]] <- microTensor(
-    X = X_array, R = 3, 
-    nn_t = TRUE, ortho_m = TRUE,
-    weighted = TRUE,
-    control = list(L_init = 2,
-                   gamma = 2,
-                   maxit = 1000,
-                   verbose = TRUE,
-                   debug_dir = paste0(dir_output, "/fit/", i)))
+  set.seed(i)
+  l_fit_microTensor[[i]] <- 
+    microTensor::microTensor(
+      X = X_array, R = 3, 
+      nn_t = TRUE, ortho_m = TRUE,
+      weighted = TRUE,
+      control = list(L_init = 2,
+                     gamma = 2,
+                     maxit = 1000,
+                     verbose = TRUE,
+                     debug_dir = paste0(dir_output, "/fit/", i)))
 }
 fit_microTensor <- l_fit_microTensor %>% 
   purrr::map_dbl(~ min(.x$fitting$obj)) %>% 
@@ -36,11 +35,12 @@ fit_microTensor <- l_fit_microTensor %>%
   {l_fit_microTensor[[.]]}
 save(fit_microTensor, file = paste0(dir_output, "/fit_microTensor.RData"))
 
-set.seed(0)
 l_fit_ctf <- list()
 for(i in seq(1, 5)) {
-  l_fit_ctf[[i]] <- ctf(
-    X = X_array, R = 3)
+  set.seed(i)
+  l_fit_ctf[[i]] <- 
+    microTensor::ctf(
+      X = X_array, R = 3)
 }
 fit_ctf <- l_fit_ctf %>% 
   purrr::map_dbl(~ min(.x$fitting$obj)) %>% 
@@ -48,16 +48,159 @@ fit_ctf <- l_fit_ctf %>%
   {l_fit_ctf[[.]]}
 save(fit_ctf, file = paste0(dir_output, "/fit_ctf.RData"))
 
-fit_pca <- pca(X_array, R = 3)
+fit_pca <- microTensor::pca(X_array, R = 3)
 save(fit_pca, file = paste0(dir_output, "/fit_pca.RData"))
 ```
 
-```{r visualization}
+```{r check R}
+set.seed(1)
+R <- 10
+fit_long <- microTensor::microTensor(
+  X = X_array, R = R, 
+  ortho_m = TRUE,
+  nn_t = FALSE,
+  weighted = TRUE,
+  control = list(
+    L_init = 3,
+    gamma = 2,
+    abs_tol = 1e-4,
+    rel_tol = 1e-4,
+    maxit = 5000,
+    verbose = FALSE))
+negLogLiks <- seq(1, R) %>% 
+  purrr::map_dbl(function(i_R){
+    Yhat <- microTensor::get_Yhat(
+      result = list(
+        lambda = fit_long$lambda[seq(1, i_R)],
+        m = fit_long$m[, seq(1, i_R), drop = FALSE],
+        s = fit_long$s[, seq(1, i_R), drop = FALSE],
+        t = fit_long$t[, seq(1, i_R), drop = FALSE]
+      )
+    )
+    microTensor::negLogLik_cpp(
+      X = X_array,
+      Yhat = Yhat,
+      wt = matrix(1, nrow = dim(X_array)[2], ncol = dim(X_array)[3]),
+      lambda = 0,
+      vm = rep(0, dim(X_array)[1]),
+      vs = rep(0, dim(X_array)[2]),
+      vt = rep(0, dim(X_array)[3])
+    )
+  })
+
+# zero
+negLogLiks <- 
+  c(microTensor::negLogLik_cpp(
+      X = X_array,
+      Yhat = array(0, dim(X_array)),
+      wt = matrix(1, nrow = dim(X_array)[2], ncol = dim(X_array)[3]),
+      lambda = 0,
+      vm = rep(0, dim(X_array)[1]),
+      vs = rep(0, dim(X_array)[2]),
+      vt = rep(0, dim(X_array)[3])
+    ),
+    negLogLiks)
+
+tb_plot <- tibble::tibble(
+  R = seq(0, R),
+  negLogLiks = negLogLiks
+) + 
+  
+
+p <- tb_plot %>% 
+  ggplot(aes(x = R,
+             y = negLogLiks)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  ylab("Negative log-likelihood") +
+  ggtitle("FARMM R")
+save(fit_long, file = "results/FARMM/fit_long.RData")
+ggsave(p, filename = "results/FARMM/select_R.pdf",
+       width = 5, height = 5)
+```
+
+```{r check goodness-of-fit}
 load(paste0(dir_output, "/fit_microTensor.RData"))
 load(paste0(dir_output, "/fit_ctf.RData"))
 load(paste0(dir_output, "/fit_pca.RData"))
 load("data/FARMM/X_array.RData")
+
+Yhat_microTensor <- microTensor::get_Yhat(fit_microTensor)
+expY <- exp(Yhat_microTensor)
+expYsum_m <- apply(expY, c(2, 3), sum)
+phat_microTensor <- 
+  vapply(seq_len(dim(X_array)[1]),
+         function(i) expY[i, , ] / expYsum_m,
+         matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+phat_microTensor <- 
+  aperm(phat_microTensor, perm = c(3, 1, 2))
+
+Yhat_ctf <- microTensor::get_Yhat(fit_ctf)
+expY <- exp(Yhat_ctf)
+expYsum_m <- apply(expY, c(2, 3), sum)
+phat_ctf <- 
+  vapply(seq_len(dim(X_array)[1]),
+         function(i) expY[i, , ] / expYsum_m,
+         matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+phat_ctf <- 
+  aperm(phat_ctf, perm = c(3, 1, 2))
+
+Yhat_pca_mat <-  fit_pca$m %*% (t(fit_pca$s_full) * fit_pca$lambda)
+Yhat_pca <- array(NA, dim(X_array))
+for(i in seq_len(nrow(Yhat_pca_mat))) {
+  Yhat_pca[i, , ] <-  Yhat_pca_mat[i, ]
+}
+expY <- exp(Yhat_pca)
+expYsum_m <- apply(expY, c(2, 3), sum)
+phat_pca <- 
+  vapply(seq_len(dim(X_array)[1]),
+         function(i) expY[i, , ] / expYsum_m,
+         matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+phat_pca <- 
+  aperm(phat_pca, perm = c(3, 1, 2))
+
+
+phat_data <- array(NA, dim(X_array))
+Xsum_m <- apply(X_array, c(2, 3), sum)
+phat_data <- 
+  vapply(seq_len(dim(X_array)[1]),
+         function(i) X_array[i, , ] / Xsum_m,
+         matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+phat_data <- 
+  aperm(phat_data, perm = c(3, 1, 2))
+
+tb_diff <- 
+  list(phat_microTensor,
+       phat_ctf,
+       phat_pca) %>% 
+  purrr::map2_dfr(
+    c("microTensor", "CTF", "PCA"),
+    function(i_phat, i_method) {
+      tibble::tibble(
+        diff = abs(i_phat - phat_data) %>% 
+          apply(c(2, 3), mean) %>% 
+          as.vector(),
+        method = i_method
+      )
+    }
+  ) %>% 
+  dplyr::filter(!is.na(diff)) %>% 
+  dplyr::mutate(method = factor(method, levels = c("PCA", "CTF", "microTensor")))
+p_diff <- tb_diff %>% 
+  ggplot(aes(x = method, y = diff)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.title.x = element_blank()) +
+  ylab("Absolute difference in observed and \n method-based microbial profiles")
+```
+
+```{r visualization}
 load("data/FARMM/df_samples.RData")
+df_subjects <- df_samples %>% 
+  dplyr::group_by(SubjectID) %>% 
+  dplyr::slice(1) %>% 
+  dplyr::ungroup()
 feature_names <- dimnames(X_array)[[1]]
 subject_names <- dimnames(X_array)[[2]]
 time_names <- dimnames(X_array)[[3]]
@@ -68,11 +211,12 @@ percs <- fit_microTensor$lambda^2 / sum(fit_microTensor$lambda^2) * 100
 ps <- c(1, 2) %>% 
   purrr::map(function(r) {
     # feature
-    df_m <- create_loading(fit_microTensor,
-                           feature_names = feature_names,
-                           subject_names = subject_names,
-                           time_names = time_names,
-                           class = "feature") %>% 
+    df_m <- microTensor::create_loading(
+      fit_microTensor,
+      feature_names = feature_names,
+      subject_names = subject_names,
+      time_names = time_names,
+      class = "feature") %>% 
       dplyr::mutate(
         feature_plot = mat_tax[, 7] %>% 
           stringr::str_replace(stringr::fixed("s__"), "") %>% 
@@ -101,11 +245,11 @@ ps <- c(1, 2) %>%
       ggtitle(" ")
     
     # time trajectory
-    tb_loading <- create_loading(fit_decomp = fit_microTensor,
-                                 feature_names = feature_names,
-                                 subject_names = subject_names,
-                                 time_names = time_names,
-                                 class = "sample")
+    tb_loading <- microTensor::create_loading(fit_decomp = fit_microTensor,
+                                              feature_names = feature_names,
+                                              subject_names = subject_names,
+                                              time_names = time_names,
+                                              class = "sample")
     
     tb_loading <- tb_loading %>% 
       dplyr::mutate(Time = as.integer(as.character(Time))) %>% 
@@ -118,7 +262,8 @@ ps <- c(1, 2) %>%
     tb_loading_avg <- tb_loading %>% 
       dplyr::group_by(Time, study_group) %>% 
       dplyr::summarise(mean_loading = mean(!!sym(paste0("Axis ", r)), na.rm = TRUE),
-                       sd_loading = sd(!!sym(paste0("Axis ", r)), na.rm = TRUE)) %>% 
+                       sd_loading = sd(!!sym(paste0("Axis ", r)), na.rm = TRUE) /
+                         sqrt(dplyr::n())) %>% 
       dplyr::ungroup()
     
     p_time <- tb_loading_avg %>% 
@@ -155,7 +300,7 @@ p_main <-
     cowplot::plot_grid(ps[[1]][[1]], ps[[2]][[1]],
                        ncol = 1,
                        align = "v",
-                       labels = paste0(c("A", "B"), ") Axis ", c(1, 2),
+                       labels = paste0(c("B", "C"), ") Axis ", c(1, 2),
                                        " (", round(percs[c(1, 2)], 2),
                                        "%)")),
     cowplot::plot_grid(ps[[1]][[2]], ps[[2]][[2]],
@@ -165,9 +310,14 @@ p_main <-
   cowplot::plot_grid(plotlist = .,
                      nrow = 1,
                      align = "h", 
-                     rel_widths = c(1, 0.8))
+                     rel_widths = c(1, 0.8)) %>% 
+  cowplot::plot_grid(p_diff,  .,
+                     nrow = 1,
+                     align = "h", 
+                     rel_widths = c(0.5, 1),
+                     labels = c("A)", ""))
 ggsave(p_main, file = "figures/figure6/figure_FARMM.pdf",
-       width = 8, height = 6)
+       width = 11, height = 6)
 ```
 
 ```{r supplements}
@@ -180,11 +330,12 @@ p_supps <- list(fit_pca,
       ps <- c(1, 2) %>% 
         purrr::map(function(r) {
           # feature
-          df_m <- create_loading(fit_decomp,
-                                 feature_names = feature_names,
-                                 subject_names = subject_names,
-                                 time_names = time_names,
-                                 class = "feature") %>% 
+          df_m <- microTensor::create_loading(
+            fit_decomp,
+            feature_names = feature_names,
+            subject_names = subject_names,
+            time_names = time_names,
+            class = "feature") %>% 
             dplyr::mutate(
               feature_plot = ifelse(mat_tax[, 7] == "",
                                     mat_tax[, 6] %>% 
@@ -219,11 +370,12 @@ p_supps <- list(fit_pca,
             ggtitle(" ")
           
           # time trajectory
-          tb_loading <- create_loading(fit_decomp = fit_decomp,
-                                       feature_names = feature_names,
-                                       subject_names = subject_names,
-                                       time_names = time_names,
-                                       class = "sample")
+          tb_loading <- microTensor::create_loading(
+            fit_decomp = fit_decomp,
+            feature_names = feature_names,
+            subject_names = subject_names,
+            time_names = time_names,
+            class = "sample")
           
           tb_loading <- tb_loading %>% 
             dplyr::mutate(Time = as.integer(Time)) %>% 
@@ -236,7 +388,8 @@ p_supps <- list(fit_pca,
           tb_loading_avg <- tb_loading %>% 
             dplyr::group_by(Time, study_group) %>% 
             dplyr::summarise(mean_loading = mean(!!sym(paste0("Axis ", r)), na.rm = TRUE),
-                             sd_loading = sd(!!sym(paste0("Axis ", r)), na.rm = TRUE)) %>% 
+                             sd_loading = sd(!!sym(paste0("Axis ", r)), na.rm = TRUE) /
+                               sqrt(dplyr::n())) %>% 
             dplyr::ungroup()
           
           p_time <- tb_loading_avg %>% 
@@ -306,11 +459,11 @@ tb_test_diet <- list(
   purrr::map2_dfr(
     c("CTF", "microTensor"),
     function(fit_decomp, method) {
-      tb_subject <- create_loading(fit_decomp,
-                                   feature_names = dimnames(X_array)[[1]], 
-                                   subject_names = dimnames(X_array)[[2]],
-                                   time_names = dimnames(X_array)[[3]],
-                                   class = "subject")
+      tb_subject <- microTensor::create_loading(fit_decomp,
+                                                feature_names = dimnames(X_array)[[1]], 
+                                                subject_names = dimnames(X_array)[[2]],
+                                                time_names = dimnames(X_array)[[3]],
+                                                class = "subject")
       tb_subject <- df_samples %>% 
         dplyr::group_by(SubjectID) %>% 
         dplyr::slice(1) %>% 
@@ -331,6 +484,8 @@ tb_test_diet <- list(
               tibble::tibble(
                 Diet = group,
                 Axis = axis,
+                Coefficient = results[2, 1],
+                `Standard error` = results[2, 2],
                 `T statistic` = results[2, 3],
                 p = results[2, 4]
               )
@@ -338,11 +493,12 @@ tb_test_diet <- list(
         }) %>% 
         dplyr::mutate(Method = method)
     })
-tb_samples <- create_loading(fit_pca, 
-                             feature_names = dimnames(X_array)[[1]], 
-                             subject_names = dimnames(X_array)[[2]],
-                             time_names = dimnames(X_array)[[3]],
-                             class = "sample") %>% 
+tb_samples <- microTensor::create_loading(
+  fit_pca, 
+  feature_names = dimnames(X_array)[[1]], 
+  subject_names = dimnames(X_array)[[2]],
+  time_names = dimnames(X_array)[[3]],
+  class = "sample") %>% 
   dplyr::mutate(Time = as.numeric(Time))
 tb_samples <- df_samples %>% 
   dplyr::left_join(tb_samples, by = c("SubjectID" = "Subject",
@@ -364,6 +520,8 @@ tb_test_diet_pca <- c("Vegan", "EEN") %>%
         tibble::tibble(
           Diet = group,
           Axis = axis,
+          Coefficient = results[2, 1],
+          `Standard error` = results[2, 2],
           `T statistic` = results[2, 4],
           p = results[2, 5]
         )
@@ -384,21 +542,35 @@ tb_test_diet_write <- rbind(tb_test_diet_pca,
                                     Test,
                                     "")) %>%
   dplyr::ungroup() %>% 
-  dplyr::select(Method_write, Test_write, Axis, `T statistic`, p) %>% 
+  dplyr::select(Method_write, Test_write, Axis,
+                Coefficient, `Standard error`, `T statistic`, p) %>% 
   dplyr::rename(Method = Method_write,
                 Test = Test_write) %>% 
-  dplyr::mutate(`T statistic` = 
-                  sapply(`T statistic`,
-                         format,
-                         digits = 3, 
-                         scientific = -2, 
-                         drop0trailing = TRUE),
-                p = 
-                  sapply(p,
-                         format,
-                         digits = 3, 
-                         scientific = -2, 
-                         drop0trailing = TRUE))
+  dplyr::mutate(
+    Coefficient = 
+      sapply(Coefficient,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE),
+    `Standard error` = 
+      sapply(`Standard error`,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE),
+    `T statistic` = 
+      sapply(`T statistic`,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE),
+    p = 
+      sapply(p,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE))
 readr::write_csv(tb_test_diet_write, path = "tables/farmm_test_diet.csv")
 
 tb_test_time <- list(
@@ -408,11 +580,11 @@ tb_test_time <- list(
   purrr::map2_dfr(
     c("CTF", "microTensor"),
     function(fit_decomp, method) {
-      tb_time <- create_loading(fit_decomp,
-                                feature_names = dimnames(X_array)[[1]], 
-                                subject_names = dimnames(X_array)[[2]],
-                                time_names = dimnames(X_array)[[3]],
-                                class = "time")
+      tb_time <- microTensor::create_loading(fit_decomp,
+                                             feature_names = dimnames(X_array)[[1]], 
+                                             subject_names = dimnames(X_array)[[2]],
+                                             time_names = dimnames(X_array)[[3]],
+                                             class = "time")
       tb_time <- tb_time %>% 
         dplyr::mutate(Time = as.numeric(as.character(Time))) %>% 
         dplyr::mutate(Time1 = ifelse(Time <= 5,
@@ -434,13 +606,15 @@ tb_test_time <- list(
                        data = tb_subset)
           results <- summary(fit_lm)$coef
           tibble::tibble(
-                  Test = c("Daily change (day 0-5)",
-                           "Daily change (day 6-9)",
-                           "Daily change (day 10-15)"),
-                  Axis = axis,
-                  `T statistic` = results[seq(2, 4), 3],
-                  p = results[seq(2, 4), 4]
-                )
+            Test = c("Daily change (day 0-5)",
+                     "Daily change (day 6-9)",
+                     "Daily change (day 10-15)"),
+            Axis = axis,
+            Coefficient = results[seq(2, 4), 1],
+            `Standard error` = results[seq(2, 4), 2],
+            `T statistic` = results[seq(2, 4), 3],
+            p = results[seq(2, 4), 4]
+          )
         }) %>% 
         dplyr::mutate(Method = method)
       return(tb_test)
@@ -459,22 +633,24 @@ tb_samples <- tb_samples %>%
                                0, 
                                Time - 9))
 tb_test_time_pca <- c("Axis 1", "Axis 2") %>% 
-      purrr::map_dfr(function(axis) {
-        tb_subset <- tb_samples %>% 
-          dplyr::mutate(outcome = !!sym(axis))
-        fit_lme4 <- lme4::lmer(
-          outcome ~ Time1 + Time2 + Time3 + (1|SubjectID), 
-          data = tb_subset)
-        results <- lmerTest:::summary.lmerModLmerTest(fit_lme4)$coef
-        tibble::tibble(
-                  Test = c("Daily change (day 0-5)",
-                           "Daily change (day 6-9)",
-                           "Daily change (day 10-15)"),
-                  Axis = axis,
-                  `T statistic` = results[seq(2, 4), 4],
-                  p = results[seq(2, 4), 5]
-                )
-      }) %>% 
+  purrr::map_dfr(function(axis) {
+    tb_subset <- tb_samples %>% 
+      dplyr::mutate(outcome = !!sym(axis))
+    fit_lme4 <- lme4::lmer(
+      outcome ~ Time1 + Time2 + Time3 + (1|SubjectID), 
+      data = tb_subset)
+    results <- lmerTest:::summary.lmerModLmerTest(fit_lme4)$coef
+    tibble::tibble(
+      Test = c("Daily change (day 0-5)",
+               "Daily change (day 6-9)",
+               "Daily change (day 10-15)"),
+      Axis = axis,
+      Coefficient = results[seq(2, 4), 1],
+      `Standard error` = results[seq(2, 4), 2],
+      `T statistic` = results[seq(2, 4), 4],
+      p = results[seq(2, 4), 5]
+    )
+  }) %>% 
   dplyr::mutate(Method = "PCA") 
 tb_test_time_write <- rbind(tb_test_time_pca,
                             tb_test_time) %>% 
@@ -501,20 +677,114 @@ tb_test_time_write <- rbind(tb_test_time_pca,
                                     as.character(Test),
                                     "")) %>%
   dplyr::ungroup() %>% 
-  dplyr::select(Method_write, Test_write, Axis, `T statistic`, p) %>% 
+  dplyr::select(Method_write, Test_write, Axis,
+                Coefficient, `Standard error`, `T statistic`, p) %>% 
   dplyr::rename(Method = Method_write,
                 Test = Test_write) %>% 
-  dplyr::mutate(`T statistic` = 
-                  sapply(`T statistic`,
-                         format,
-                         digits = 3, 
-                         scientific = -2, 
-                         drop0trailing = TRUE),
-                p = 
-                  sapply(p,
-                         format,
-                         digits = 3, 
-                         scientific = -2, 
-                         drop0trailing = TRUE))
+  dplyr::mutate(
+    Coefficient = 
+      sapply(Coefficient,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE),
+    `Standard error` = 
+      sapply(`Standard error`,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE),
+    `T statistic` = 
+      sapply(`T statistic`,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE),
+    p = 
+      sapply(p,
+             format,
+             digits = 3, 
+             scientific = -2, 
+             drop0trailing = TRUE))
 readr::write_csv(tb_test_time_write, path = "tables/farmm_test_time.csv")
+```
+
+```{r overdispersion}
+Yhat <- microTensor::get_Yhat(fit_microTensor$unweighted)
+Xsum_m <- apply(X_array, c(2, 3), sum)
+expY <- exp(Yhat)
+expYsum_m <- apply(expY, c(2, 3), sum)
+phat <- vapply(seq_len(dim(X_array)[1]),
+               function(i) expY[i, , ] / expYsum_m,
+               matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+phat <- aperm(phat, perm = c(3, 1, 2))
+Xhat <- vapply(seq_len(dim(X_array)[1]),
+               function(i) phat[i, , ] * Xsum_m,
+               matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+Xhat <- aperm(Xhat, perm = c(3, 1, 2))
+var_obs <- (X_array - Xhat)^2
+var_exp <- Xhat * (1 - phat)
+
+# left panel
+OF <- apply(var_obs, c(2, 3), sum, na.rm = TRUE) / 
+  apply(var_exp, c(2, 3), sum, na.rm = TRUE)
+
+tb_plot <- tibble::tibble(
+  depth = as.vector(Xsum_m),
+  OF = as.vector(OF)
+) %>% 
+  dplyr::filter(!is.na(depth)) 
+
+p1 <- tb_plot %>% 
+  ggplot(aes(x = log10(depth),
+             y = log10(OF))) + 
+  geom_point() +
+  theme_bw() +
+  xlab(expression(paste(log[10], " Read Depth"))) +
+  ylab(expression(paste(log[10], " Overdispersion Factor"))) +
+  ggtitle("Multinomial")
+
+Yhat <- microTensor::get_Yhat(fit_microTensor)
+wt_estimate <- microTensor::estimate_wt(X = X_array, Yhat = Yhat)
+
+Xsum_m <- apply(X_array, c(2, 3), sum)
+expY <- exp(Yhat)
+expYsum_m <- apply(expY, c(2, 3), sum)
+phat <- vapply(seq_len(dim(X_array)[1]),
+               function(i) expY[i, , ] / expYsum_m,
+               matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+phat <- aperm(phat, perm = c(3, 1, 2))
+Xhat <- vapply(seq_len(dim(X_array)[1]),
+               function(i) phat[i, , ] * Xsum_m,
+               matrix(0.0, nrow = dim(X_array)[2], ncol = dim(X_array)[3]))
+Xhat <- aperm(Xhat, perm = c(3, 1, 2))
+var_obs <- (X_array - Xhat)^2
+var_exp <- Xhat * (1 - phat)
+
+
+# right panel
+OF <- apply(var_obs, c(2, 3), sum, na.rm = TRUE) / 
+  apply(var_exp, c(2, 3), sum, na.rm = TRUE) /
+  (1 + (Xsum_m - 1) * wt_estimate$phi)
+
+tb_plot <- tibble::tibble(
+  depth = as.vector(Xsum_m),
+  OF = as.vector(OF)
+) %>% 
+  dplyr::filter(!is.na(depth)) %>% 
+  dplyr::filter(depth > 10000)
+
+p2 <- tb_plot %>% 
+  ggplot(aes(x = log10(depth),
+             y = log10(OF))) + 
+  geom_point() +
+  theme_bw() +
+  xlab(expression(paste(log[10], " Read Depth"))) +
+  ylab(expression(paste(log[10], " Overdispersion Factor"))) +
+  ggtitle("Quasi-likelihood")
+
+
+p <- cowplot::plot_grid(p1, p2, labels = c("A)", "B)"), nrow = 1)
+ggsave(p, filename = "figures/figure2/figure2.pdf",
+       width = 6.5, height = 3.5)
 ```

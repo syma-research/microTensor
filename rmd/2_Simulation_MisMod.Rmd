@@ -48,37 +48,71 @@ params <- list(m = cbind(m1, m2),
                Y = Y,
                p = p,
                depth_range = depth_range)
-save(params, file = paste0(dir_output, "/params.RData"))
+save(params, file = paste0(dir_output, "/params_n1.RData"))
+
+# smaller sample size
+m1 <- rep(c(1, 0, -1), each = 66)
+m1 <- m1 / sqrt(sum(m1^2))
+s1 <- rep(1, length = 30)
+s1 <- s1 / sqrt(sum(s1^2))
+t1 <- rep(1, length = 10)
+t1 <- t1 / sqrt(sum(t1^2))
+lambda1 <- 1000 / sqrt(10/3)
+
+m2 <- rep(rep(c(-1, 0, 1), each = 22), 3)
+m2 <- m2 / sqrt(sum(m2^2))
+s2 <- rep(c(0, 1), each = 15)
+s2 <- s2 / sqrt(sum(s2^2))
+t2 <- rep(c(0, 1), each = 5)
+t2 <- t2 / sqrt(sum(t2^2))
+lambda2 <- 500 / sqrt(10/3)
+
+Y <- lambda1 * outer(m1, outer(s1, t1)) + lambda2 * outer(m2, outer(s2, t2))
+p <- apply(Y, c(2, 3), function(x) exp(x) / sum(exp(x)))
+
+depth_range <- c(0.1, 10)
+params <- list(m = cbind(m1, m2),
+               s = cbind(s1, s2),
+               t = cbind(t1, t2),
+               lambda = c(lambda1, lambda2),
+               Y = Y,
+               p = p,
+               depth_range = depth_range)
+save(params, file = paste0(dir_output, "/params_n2.RData"))
+
 rm(list = c("m1", "m2", "s1", "s2", "t1", "t2", "lambda1", "lambda2",
             "Y", "p", "depth_range", "params"))
 ```
 
 ```{r jobs}
 tb_job <- tidyr::crossing(
-  sd = seq(0.5, 2, by = 0.25),
+  n = c(1, 2),
+  sd = seq(0.25, 2.25, by = 0.5),
   t_missing = c(0, 4),
   median_depth = c(1e4, 1e5),
   R = 3,
-  rep = seq(1, 25),
+  rep = seq(1, 1000),
   method = c("microTensor", "ctf")
-)
+) %>% 
+  dplyr::mutate(i_job = seq(1, dplyr::n()))
 save(tb_job, file = paste0(dir_output, "/tb_job.RData"))
 n_job <- nrow(tb_job)
-n_job_each <- 5
-rm(list = "tb_job")
+n_job_each <- 200
 ```
 
 ```{r one job}
+# fit decomposition methods to simulated data
 one_job <- function(i_job) {
-  source("R/sourceDir.R")
-  sourceDir("R/")
-  load(paste0(dir_output, "/params.RData"))
+  library(magrittr)
   load(paste0(dir_output, "/tb_job.RData"))
   
+  l_statistics <- list()
   for(ii_job in seq((i_job - 1) * n_job_each + 1, i_job * n_job_each)) {
-    set.seed(ii_job)
     i_tb_job <- tb_job[ii_job, ]
     
+    load(paste0(dir_output, "/params_n", i_tb_job$n, ".RData"))
+    
+    set.seed(ii_job + 1)
     Ytilde <- params$Y
     Ytilde <- Ytilde + rnorm(n = length(Ytilde), mean = 0, sd = i_tb_job$sd)
     ptilde <- apply(exp(Ytilde), c(2, 3), function(x) x / sum(x))
@@ -105,132 +139,69 @@ one_job <- function(i_job) {
       }
     }
     
-    sim_data <- list(Ytilde = Ytilde,
-                     ptilde = ptilde,
-                     ptilde_missing = ptilde_missing,
-                     X_array = X_array)
-    save(sim_data, file = paste0(dir_output, "/sim_data_", ii_job, ".RData"))
+    # sim_data <- list(ptilde = ptilde,
+    #                  ptilde_missing = ptilde_missing,
+    #                  X_array = X_array)
+    # save(sim_data, file = paste0(dir_output, "/sim_data_", ii_job, ".RData"))
     
-    
-   if(i_tb_job$method == "microTensor") {
-      fit_decomp <- microTensor(
-        X = X_array, R = i_tb_job$R, 
-        ortho_m = FALSE,
-        nn_t = FALSE,
-        weighted = TRUE,
-        control = list(
-          L_init = 3,
-          gamma = 2,
-          abs_tol = 1e-4,
-          rel_tol = 1e-4,
-          maxit = 5000,
-          verbose = FALSE,
-          debug_dir = paste0(dir_output, "/fit_decomp_", ii_job)))
+    if(i_tb_job$method == "microTensor") {
+      time <- system.time(
+        fit_decomp <- microTensor::microTensor(
+          X = X_array, R = i_tb_job$R, 
+          ortho_m = FALSE,
+          nn_t = FALSE,
+          weighted = TRUE,
+          control = list(
+            L_init = 3,
+            gamma = 2,
+            init = "ctf",
+            abs_tol = 1e-4,
+            rel_tol = 1e-4,
+            maxit = 5000,
+            verbose = FALSE)))
     } else if(i_tb_job$method == "ctf") {
-      fit_decomp <-  ctf(
-        X = X_array, R = i_tb_job$R, 
-        control = list(
-          maxit = 5000,
-          verbose = FALSE,
-          debug_dir = paste0(dir_output, "/fit_decomp_", ii_job)))
+      time <- system.time(
+        fit_decomp <-  microTensor::ctf(
+          X = X_array, R = i_tb_job$R, 
+          control = list(
+            maxit = 5000,
+            verbose = FALSE)))
     }
+    fit_decomp$time <- time
     
-    save(fit_decomp, file = paste0(dir_output, "/fit_", ii_job, ".RData"))
-  }
-  
-  return(NULL)
-}
-```
-
-```{r submit jobs}
-batchtools::clearRegistry()
-tb_ids <- batchtools::batchMap(one_job, 
-                               i_job = seq(1, n_job / n_job_each))
-batchtools::batchExport(mget(ls()))
-ncpus <- 1
-partition <- "CCEB"
-walltime <- 3600 * 2
-batchtools::submitJobs(ids = seq(1, 10),
-                       resources =  list(ncpus = ncpus,
-                                         partition = partition,
-                                         walltime = walltime))
-# batchtools::submitJobs(ids = seq(11, n_job / n_job_each),
-#                        resources =  list(ncpus = ncpus,
-#                                          partition = partition,
-#                                          walltime = walltime))
-```
-
-```{r evaluation summary batchtools}
-# Registry
-# batchtools::makeRegistry(file.dir = "r_batchtools_reg/sim/MisMod_Summary",
-#                          package = c("magrittr"))
-batchtools::loadRegistry(file.dir = "r_batchtools_reg/sim/MisMod_Summary",
-                         writeable = TRUE)
-
-rm(list = ls())
-dir_output <- "results/Simulation/MisMod"
-```
-
-```{r summary job grid}
-load(paste0(dir_output, "/tb_job.RData"))
-tb_job_summary <- rbind(
-  tb_job %>% 
-    dplyr::filter(method != "microTensor") %>% 
-    dplyr::mutate(weighted = FALSE),
-  tb_job %>% 
-    dplyr::filter(method == "microTensor") %>% 
-    tidyr::expand_grid(weighted = c(FALSE, TRUE))) %>% 
-  dplyr::rename(i_job_sim = i_job) %>% 
-  dplyr::mutate(i_job_summary = seq(1, dplyr::n()))
-save(tb_job_summary, file = paste0(dir_output, "/tb_job_summary.RData"))
-n_job <- nrow(tb_job_summary)
-n_job_each <- 100
-rm(list = c("tb_job", "tb_job_summary"))
-```
-
-```{r one job}
-one_job <- function(i_job) {
-  source("R/sourceDir.R")
-  sourceDir("R/")
-  load(paste0(dir_output, "/tb_job_summary.RData"))
-  
-  for(ii_job in seq((i_job - 1) * n_job_each + 1, i_job * n_job_each)) {
-    i_tb_job <- tb_job_summary[ii_job, ]
-    load(paste0(dir_output, "/fit_", i_tb_job$i_job_sim, ".RData"))
-    load(paste0(dir_output, "/params.RData"))
-    load(paste0(dir_output, "/sim_data_", i_tb_job$i_job_sim, ".RData"))
+    ## evaluation
+    results_summary <- 
+      microTensor::evaluate_fit(
+        fit_decomp = fit_decomp,
+        p = params$p,
+        X_array = X_array,
+        R = 2)
+    # save(results_summary, 
+    #      file = paste0(dir_output, "/results_summary_", ii_job, ".RData"))
+    if(i_tb_job$method == "microTensor") {
+      results_summary_uw <- 
+        microTensor::evaluate_fit(
+          fit_decomp = fit_decomp$unweighted,
+          p = params$p,
+          X_array = X_array,
+          R = 2)
+    } 
+    # save(results_summary, 
+    #      file = paste0(dir_output, "/results_summary_", ii_job, "_unweighted.RData"))
     
-    if(i_tb_job$method != "microTensor" |
-       i_tb_job$weighted) {
-      results_summary <- 
-        evaluate_fit(fit_decomp = fit_decomp,
-                     p = params$p,
-                     X_array = sim_data$X_array,
-                     R = 2)
-    } else {
-      results_summary <- 
-        evaluate_fit(fit_decomp = fit_decomp$unweighted,
-                     p = params$p,
-                     X_array = sim_data$X_array,
-                     R = 2)
-    }
-    
-    save(results_summary, 
-         file = paste0(dir_output, "/results_summary_", ii_job, ".RData"))
-    
-    load(paste0(dir_output, "/sim_data_", i_tb_job$i_job_sim, ".RData"))
-    zero_perc <- mean(sim_data$X_array == 0)
-    median_depth <- median(apply(sim_data$X_array, c(2, 3), sum, na.rm = TRUE))
+    # evaluation of the simulated data
+    zero_perc <- mean(X_array == 0)
+    median_depth <- median(apply(X_array, c(2, 3), sum, na.rm = TRUE))
     mat_L1_ptilde <-  
       matrix(NA, nrow = dim(params$p)[2], ncol = dim(params$p)[3])
     for(j in seq(1, nrow(mat_L1_ptilde)))
       for(k in seq(1, ncol(mat_L1_ptilde)))
         mat_L1_ptilde[j, k] <- 
-      mean(abs(sim_data$ptilde[, j, k] - params$p[, j, k]) / params$p[, j, k])
-    p_norm <- apply(sim_data$X_array, c(2, 3),
+      mean(abs(ptilde[, j, k] - params$p[, j, k]) / params$p[, j, k])
+    p_norm <- apply(X_array, c(2, 3),
                     function(x) {
                       if(all(x == 0, na.rm = TRUE) )
-                         return(x)
+                        return(x)
                       else
                         return(x / sum(x, na.rm = TRUE))
                     })
@@ -241,14 +212,40 @@ one_job <- function(i_job) {
         mat_L1_pnorm[j, k] <- 
       mean(abs(p_norm[, j, k] - params$p[, j, k]) / params$p[, j, k])
     
-  
-    sim_summary <- list(zero_perc = zero_perc,
-                        median_depth = median_depth,
-                        mat_L1_ptilde = mat_L1_ptilde,
-                        mat_L1_pnorm = mat_L1_pnorm)
-    save(sim_summary, 
-         file = paste0(dir_output, "/sim_summary_", ii_job, ".RData"))
+    # sim_summary <- list(zero_perc = zero_perc,
+    #                     median_depth = median_depth,
+    #                     mat_L1_ptilde = mat_L1_ptilde,
+    #                     mat_L1_pnorm = mat_L1_pnorm)
+    # save(sim_summary, 
+    #      file = paste0(dir_output, "/sim_summary_", ii_job, ".RData"))
+    
+    # save particular runs to calcuate feature level statistics
+    if(i_tb_job$sd == min(tb_job$sd) &
+       i_tb_job$median_depth == 1e4 &
+       i_tb_job$t_missing == 0 &
+       i_tb_job$n == 1 &
+       i_tb_job$rep %in% seq(1, 10)) {
+      save(X_array, file = paste0(dir_output, "/X_array_", ii_job, ".RData"))
+      save(fit_decomp, file = paste0(dir_output, "/fit_", ii_job, ".RData"))
+    }
+    
+    i_l_statistics <- list(mean_L1_relative = 
+                             mean(results_summary$mat_L1_relative, na.rm = TRUE),
+                           zero_percentage = zero_perc,
+                           avg_depth = median_depth,
+                           mean_L1_ptilde =  
+                             mean(mat_L1_ptilde, na.rm = TRUE),
+                           mean_L1_pnorm = 
+                             mean(mat_L1_pnorm, na.rm = TRUE),
+                           time = fit_decomp$time)
+    if(i_tb_job$method == "microTensor") {
+      i_l_statistics$mean_l1_relative_uw <- 
+        mean(results_summary_uw$mat_L1_relative, na.rm = TRUE)
+    }
+    
+    l_statistics <- c(l_statistics, list(i_l_statistics))
   }
+  save(l_statistics, file = paste0(dir_output, "/l_statistics_", i_job, ".RData"))
   return(NULL)
 }
 ```
@@ -257,11 +254,16 @@ one_job <- function(i_job) {
 batchtools::clearRegistry()
 tb_ids <- batchtools::batchMap(one_job, 
                                i_job = seq(1, n_job / n_job_each))
-batchtools::batchExport(mget(ls()))
+batchtools::batchExport(list("dir_output" = dir_output,
+                             "n_job_each" = n_job_each))
 ncpus <- 1
-partition <- "CCEB"
+partition <- "janson,janson_cascade"
 walltime <- 3600
-batchtools::submitJobs(ids = seq(1, n_job / n_job_each),
+batchtools::submitJobs(ids = seq(1, 10),
+                       resources =  list(ncpus = ncpus,
+                                         partition = partition,
+                                         walltime = walltime))
+batchtools::submitJobs(ids = seq(11, n_job / n_job_each),
                        resources =  list(ncpus = ncpus,
                                          partition = partition,
                                          walltime = walltime))
@@ -269,62 +271,38 @@ batchtools::submitJobs(ids = seq(1, n_job / n_job_each),
 
 ```{r summarize results}
 library(ggplot2)
-source("R/sourceDir.R")
-sourceDir("R/")
 
-load(paste0(dir_output, "/tb_job_summary.RData"))
-tb_results <- tb_job_summary %>% 
-  dplyr::group_split(i_job_summary) %>% 
-  purrr::map_dfr(~ {
-    load(paste0(dir_output, "/results_summary_", .x$i_job_summary[1],
-                    ".RData"))
-    load(paste0(dir_output, "/sim_summary_", .x$i_job_summary[1],
-                    ".RData"))
-    .x %>% 
-      dplyr::mutate(result = list(results_summary),
-                    sim = list(sim_summary))
-  })
+load(paste0(dir_output, "/tb_job.RData"))
+l_statistics <- seq(1, nrow(tb_job) / n_job_each) %>% 
+  purrr::map(~ {
+    load(paste0(dir_output, "/l_statistics_", .x, ".RData"))
+    l_statistics
+  }) %>% 
+  purrr::reduce(c)
 
-tb_results <- tb_results %>%
-  dplyr::ungroup() %>%
-  dplyr::mutate(mean_L1_relative = result %>%
-                  purrr::map_dbl(~ mean(.x$mat_L1_relative, na.rm = TRUE)),
-                zero_percentage = sim %>% 
-                  purrr::map_dbl("zero_perc"),
-                avg_depth = sim %>% 
-                  purrr::map_dbl("median_depth"),
-                mean_L1_ptilde = sim %>%
-                  purrr::map_dbl(~ mean(.x$mat_L1_ptilde, na.rm = TRUE)),
-                mean_L1_pnorm = sim %>%
-                  purrr::map_dbl(~ mean(.x$mat_L1_pnorm, na.rm = TRUE))) 
-tb_plot_results <- tb_results %>%
-  dplyr::group_by(sd, t_missing, median_depth, method, weighted) %>%
-  dplyr::summarise(log10_L1_relative = mean(log10(mean_L1_relative)),
-                   sd_log10_L1_relative = sd(log10(mean_L1_relative)) / sqrt(dplyr::n()))
-tb_plot_diagnostics <- tb_results %>%
-  dplyr::filter(t_missing == 0,
-                !(method == "microTensor" & !weighted)) %>% 
-  dplyr::group_by(sd) %>% 
-  dplyr::mutate(L1_ptilde = mean(log10(mean_L1_ptilde))) %>% 
-  dplyr::group_by(sd, median_depth, L1_ptilde) %>%
-  dplyr::summarise(zero_percentage = mean(zero_percentage)) %>% 
-  dplyr::ungroup()
-  
 # Main figure
-colors <- c("PCA" = "black",
-            gg_color_hue(
-              values = c("CTF",
-                         "microTensor (uw)",
-                         "microTensor")))
-
-p_figure <- tb_plot_results %>%
-  dplyr::ungroup() %>% 
-  dplyr::mutate(method = ifelse(method == "microTensor",
-                                paste0(method, 
-                                       ifelse(weighted,
-                                              "",
-                                              " (uw)")),
-                                method) %>% 
+tb_results <- tb_job %>% 
+  dplyr::mutate(mean_L1_relative = l_statistics %>%
+                  purrr::map_dbl("mean_L1_relative")) %>% 
+  rbind(tb_job %>% 
+          dplyr::filter(method == "microTensor") %>% 
+          {dplyr::mutate(
+            ., 
+            mean_L1_relative = 
+              l_statistics[.$i_job] %>%
+              purrr::map_dbl("mean_l1_relative_uw"),
+            method = "microTensor (uw)")})
+tb_plot_results <- tb_results %>%
+  dplyr::group_by(sd, t_missing, median_depth, method, n) %>%
+  dplyr::summarise(log10_L1_relative = mean(log10(mean_L1_relative)),
+                   sd_log10_L1_relative = sd(log10(mean_L1_relative)) / sqrt(dplyr::n())) %>% 
+  dplyr::ungroup()
+colors <- smar:::gg_color_hue(
+  values = c("CTF",
+             "microTensor (uw)",
+             "microTensor"))
+tb_plot_results <- tb_plot_results %>% 
+  dplyr::mutate(method = method %>% 
                   dplyr::recode("ctf" = "CTF") %>% 
                   factor(levels = names(colors))) %>% 
   dplyr::mutate(Missing = 
@@ -338,7 +316,17 @@ p_figure <- tb_plot_results %>%
                     median_depth == 1e4 ~ "Median 10,000 Reads",
                     TRUE ~ "Median 100,000 Reads"
                   ) %>% 
-                  factor(levels = c("Median 10,000 Reads", "Median 100,000 Reads"))) %>% 
+                  factor(levels = c("Median 10,000 Reads", "Median 100,000 Reads"))) %>%
+  dplyr::arrange(Depth, Missing) %>% 
+  dplyr::mutate(level_plot = paste0(Depth, ";\n  ", 
+                                    Missing) %>% 
+                  forcats::as_factor()) %>% 
+  dplyr::mutate(level_plot_label = 
+                  c("A", "B", "C", "D")[as.integer(level_plot)] %>% 
+                  paste0(") ", level_plot) %>% 
+                  forcats::as_factor())
+p_figure <- tb_plot_results %>%
+  dplyr::filter(n == 1) %>% 
   ggplot(aes(x = sd, y = log10_L1_relative, color = method)) +
   geom_point(position = position_dodge(width = 0.05)) +
   geom_errorbar(aes(ymin = log10_L1_relative - sd_log10_L1_relative,
@@ -347,27 +335,72 @@ p_figure <- tb_plot_results %>%
   geom_line(position = position_dodge(width = 0.05)) +
   scale_color_manual(values = colors,
                      name = "Method") +
-  facet_grid(Depth ~  Missing) +
+  facet_wrap(~ level_plot_label, nrow = 2) +
   theme_bw() +
   theme(legend.position = "bottom", 
         legend.title = element_blank(),
-        legend.direction = "horizontal") +
+        legend.direction = "horizontal",
+        strip.background = element_blank()) +
   xlab(expression(paste("Dispersion (", sigma, " for ", tilde(Y)[ijk], ')'))) +
   ylab(expression(paste(log[10], " Relative ", L[1], " Difference (|", p[ijk], "-", hat(p)[ijk], 
                         "|/", p[ijk], ")")))
+p_figure2 <- tb_plot_results %>%
+  dplyr::filter(n == 2) %>% 
+  ggplot(aes(x = sd, y = log10_L1_relative, color = method)) +
+  geom_point(position = position_dodge(width = 0.05)) +
+  geom_errorbar(aes(ymin = log10_L1_relative - sd_log10_L1_relative,
+                    ymax = log10_L1_relative + sd_log10_L1_relative),
+                position = position_dodge(width = 0.05)) +
+  geom_line(position = position_dodge(width = 0.05)) +
+  scale_color_manual(values = colors,
+                     name = "Method") +
+  facet_wrap(~ level_plot_label, nrow = 2) +
+  theme_bw() +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(),
+        legend.direction = "horizontal",
+        strip.background = element_blank()) +
+  xlab(expression(paste("Dispersion (", sigma, " for ", tilde(Y)[ijk], ')'))) +
+  ylab(expression(paste(log[10], " Relative ", L[1], " Difference (|", p[ijk], "-", hat(p)[ijk], 
+                        "|/", p[ijk], ")")))
+ggsave(p_figure, filename = "figures/figure4_simulation2/figure4.pdf",
+       width = 6, height = 6)
+ggsave(p_figure2, filename = "figures/figure4_simulation2/figure4_lessSamples.pdf",
+       width = 6, height = 6)
 
 # diagnostics plots
-
+tb_plot_diagnostics <- tb_job %>% 
+  dplyr::mutate(
+    zero_percentage = l_statistics %>%
+      purrr::map_dbl("zero_percentage"),
+    avg_depth = l_statistics %>%
+      purrr::map_dbl("avg_depth"),
+    mean_L1_ptilde = l_statistics %>%
+      purrr::map_dbl("mean_L1_ptilde"),
+    mean_L1_pnorm = l_statistics %>%
+      purrr::map_dbl("mean_L1_pnorm")) %>% 
+  dplyr::mutate(method = method %>% 
+                  dplyr::recode("ctf" = "CTF") %>% 
+                  factor(levels = names(colors)))
+tb_plot_diagnostics <- tb_plot_diagnostics %>%
+  dplyr::filter(t_missing == 0,
+                n == 1) %>% 
+  dplyr::group_by(sd) %>% 
+  dplyr::mutate(L1_ptilde = mean(log10(mean_L1_ptilde))) %>% 
+  dplyr::group_by(sd, median_depth, L1_ptilde) %>%
+  dplyr::summarise(zero_percentage = mean(zero_percentage)) %>% 
+  dplyr::ungroup()
 # histogram of log p
-load(paste0(dir_output, "/params.RData"))
+load(paste0(dir_output, "/params_n1.RData"))
 p_hist <- data.frame(logp = log10(as.vector(params$p))) %>% 
   ggplot(aes(x = logp)) +
   geom_histogram() +
   theme_bw() +
   xlab(expression(paste(log[10], p[ijk]))) +
   ylab("Count")
+# difference between p and ptilde
 p_L1_ptilde <- tb_plot_diagnostics %>%
-  dplyr::filter(median_depth == 1e4) %>% 
+  dplyr::filter(median_depth == 10000) %>% 
   ggplot(aes(x = sd, y = L1_ptilde)) +
   geom_point(position = position_dodge(width = 0.05)) +
   geom_line(position = position_dodge(width = 0.05)) +
@@ -375,6 +408,7 @@ p_L1_ptilde <- tb_plot_diagnostics %>%
   xlab(expression(paste("Dispersion (", sigma, " for ", tilde(Y)[ijk], ')'))) +
   ylab(expression(paste(log[10], " Relative ", L[1], " Difference (|", p[ijk], "-", tilde(p)[ijk], 
                         "|/", p[ijk], ")")))
+# ZI characteristics
 p_ZI <- tb_plot_diagnostics %>%
   dplyr::mutate(Depth = 
                   dplyr::case_when(
@@ -384,7 +418,7 @@ p_ZI <- tb_plot_diagnostics %>%
                   factor(levels = c("Median 10,000 Reads", "Median 100,000 Reads"))) %>% 
   ggplot(aes(x = sd, y = zero_percentage)) +
   geom_point(position = position_dodge(width = 0.05)) +
-   geom_line(position = position_dodge(width = 0.05)) +
+  geom_line(position = position_dodge(width = 0.05)) +
   facet_grid(~ Depth) +
   theme_bw() +
   xlab(expression(paste("Dispersion (", sigma, " for ", tilde(Y)[ijk], ')'))) +
@@ -393,8 +427,50 @@ p_Supp <- cowplot::plot_grid(p_hist, p_L1_ptilde, nrow = 1,
                              labels = c("A", "B")) %>% 
   cowplot::plot_grid(p_ZI, ncol = 1, labels = c("", "C"))
 
-ggsave(p_figure, filename = "figures/figure4/figure4.pdf",
-       width = 6, height = 5)
-ggsave(p_Supp, filename = "figures/suppFigure/figure4_Supp.pdf",
+ggsave(p_Supp, filename = "figures/figure4_simulation2/figure4_Supp.pdf",
        width = 8, height = 8)
+
+
+# sparsity evaluation
+tb_eval <- tb_job %>% 
+  dplyr::filter(sd == min(sd),
+                median_depth == 1e4,
+                t_missing == 0,
+                n == 1,
+                rep %in% seq(1, 10))
+tb_eval <- tb_eval$i_job %>% 
+  purrr::map_dfr(function(i_job) {
+    i_tb_job <- tb_job[i_job, ]
+    load(paste0(dir_output, "/fit_", i_tb_job$i_job, ".RData"))
+    load(paste0(dir_output, "/params_n", i_tb_job$n, ".RData"))
+    load(paste0(dir_output, "/X_array_", i_tb_job$i_job, ".RData"))
+    
+    
+    Yhat <- microTensor::get_Yhat(fit_decomp, R = 2)
+    phat <- apply(Yhat, c(2, 3), function(x) {
+      x <- x - max(x)
+      return(exp(x)/sum(exp(x)))
+    })
+    array_L1_relative <- abs(phat - params$p) / params$p
+    rel_diff <- apply(log10(array_L1_relative), 1, mean)
+    mean_x_zero <- apply(X_array == 0, 1, mean)
+    
+    tibble::tibble(rel_diff = rel_diff,
+                   mean_x_zero = mean_x_zero,
+                   method = i_tb_job$method)
+  })
+p_sparse <- tb_eval %>% 
+  dplyr::mutate(method = method %>% 
+                  dplyr::recode("ctf" = "CTF") %>% 
+                  factor(levels = names(colors))) %>% 
+  ggplot(aes(x = mean_x_zero,
+             y = rel_diff,
+             color = method)) +
+  geom_point() +
+  scale_color_manual(values = colors[-2], name = "Method") +
+  xlab("Per-feature sparsity") +
+  ylab("Per-feature log10 relative difference") +
+  theme_bw() 
+ggsave(p_sparse, filename = "figures/figure4_simulation2/figure4_sparsity.pdf",
+       width = 5, height = 4)
 ```

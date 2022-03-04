@@ -70,7 +70,7 @@ save(mat_abd, file = "data/FARMM/mat_abd.RData")
 # data obtained from https://codeocean.com/capsule/6494482/tree/v1
 df_otu <- readr::read_tsv("data/DIABIMMUNE/table-matched.tsv")
 df_tax <- readr::read_tsv("data/DIABIMMUNE/taxonomy.qza/data/taxonomy.tsv")
-all(df_otu$X1 == df_tax$`Feature ID`)
+all(df_otu$`...1` == df_tax$`Feature ID`)
 mat_tax <- df_tax$Taxon %>% 
   stringr::str_split_fixed("; ", n = 7)
 
@@ -109,7 +109,8 @@ all(df_samples$`#SampleID` == colnames(mat_otu_genus))
 df_samples <- df_samples %>% 
   dplyr::group_by(month, subjectid) %>% 
   dplyr::arrange(age_at_collection) %>% 
-  dplyr::slice(1)
+  dplyr::slice(1) %>% 
+  dplyr::ungroup()
 mat_otu_genus <- mat_otu_genus[, df_samples$`#SampleID`]
 
 # create tensor
