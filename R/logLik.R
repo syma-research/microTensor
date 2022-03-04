@@ -22,7 +22,7 @@ negLogLik <- function(X, Yhat, wt, lambda, vm, vs, vt, normalize = TRUE) {
   if(normalize)
     val <- val / 
     median(Xsum_m, na.rm = TRUE) / # normalize by median library size
-    (dim(X)[2] * dim(X)[3]) * # normalize by sample size
+    sum(!is.na(Xsum_m)) * # normalize by sample size
     median(wt, na.rm = TRUE) # normalize by median weight
   
   return(val)

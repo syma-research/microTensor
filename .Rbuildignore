@@ -1,0 +1,9 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^data/*
+^figures/*
+^results/*
+^rmd/*
+^r_batchtools_reg/*
+^unit\_tests/*
+^README\.md

@@ -72,13 +72,12 @@ microTensor <- function(X, R,
     if(control$verbose)
       message("Performing weighted fitting...")
     
-    Yhat_unweighted <- Yhat
+    wt_estimate <- estimate_wt(X = X, Yhat = Yhat)
+    wt <- wt_estimate$wt
     Yhat <- array(0, dim(X))
     m_prev <- matrix(ncol = 0,
                      nrow = dim(X)[1])
     l_fit_weighted <- list()
-    wt_estimate <- estimate_wt(X = X, Yhat = Yhat)
-    wt <- wt_estimate$wt
     
     for(r in seq(1, R)) {
       if(control$verbose)

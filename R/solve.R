@@ -66,7 +66,7 @@ solve_oneR <- function(X,
       lambda_init <- lambda_init * 500 / max_logY
   }
   
-  f_init <- negLogLik(X = X,
+  f_init <- negLogLik_cpp(X = X,
                       Yhat = Yhat,
                       wt = wt,
                       lambda = lambda_init,
