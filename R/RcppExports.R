@@ -21,10 +21,6 @@ negLogLik_cpp <- function(X, Yhat, wt, lambda, vm, vs, vt, normalize = TRUE) {
     .Call(`_microTensor_negLogLik_cpp`, X, Yhat, wt, lambda, vm, vs, vt, normalize)
 }
 
-rcpp_hello_world <- function(X, y) {
-    .Call(`_microTensor_rcpp_hello_world`, X, y)
-}
-
 solve_x_vm <- function(L_old, gamma, gradient, X, Yhat, wt, lambda, vm, vs, vt, max_iter = 1000L) {
     .Call(`_microTensor_solve_x_vm`, L_old, gamma, gradient, X, Yhat, wt, lambda, vm, vs, vt, max_iter)
 }

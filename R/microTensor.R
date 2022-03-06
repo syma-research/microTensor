@@ -1,4 +1,16 @@
-# main function used to fit microTensor
+#' Tensor decomposition for longitudinal microbiome data
+#'
+#' @param X 
+#' @param R 
+#' @param weighted 
+#' @param ortho_m 
+#' @param nn_t 
+#' @param control 
+#'
+#' @return
+#' @export
+#'
+#' @examples
 microTensor <- function(X, R,
                         weighted = TRUE,
                         ortho_m = TRUE,
@@ -100,6 +112,69 @@ microTensor <- function(X, R,
       m_prev <- cbind(m_prev, matrix(i_fit$m, ncol = 1))
       l_fit_weighted[[r]] <- i_fit
     }
+    
+    if(control$phi_iter) {
+      i_outer_iter <- 1
+      wt_estimate_new <- 
+        wt_estimate <- 
+        estimate_wt(X = X, Yhat = Yhat)
+      wt <- wt_estimate$wt
+      Yhat <- array(0, dim(X))
+      m_prev <- matrix(ncol = 0,
+                       nrow = dim(X)[1])
+      
+      while(i_outer_iter <= control$phi_iter) {
+        if(control$verbose) 
+          message("Fitting additional phi iteration ", i_outer_iter, "...")
+        
+        l_fit_weighted_new <- list()
+        for(r in seq(1, R)) {
+          if(control$verbose)
+            message("Fitting for R = ", r, "...")
+          i_fit <- 
+            solve_oneR(
+              X = X,
+              Yhat = Yhat,
+              wt = wt,
+              m_prev = m_prev,
+              init = l_fit_weighted[[r]],
+              ortho_m = ortho_m,
+              nn_t = nn_t,
+              gamma = control$gamma, L_init = control$L_init,
+              abs_tol = control$abs_tol, rel_tol = control$rel_tol,
+              maxit = control$maxit,
+              debug_dir = 
+                paste_debugDir(
+                  control$debug_dir,
+                  "/weighted_iter_", i_outer_iter,
+                  "_R_", r), 
+              verbose = control$verbose)
+          
+          Yhat <- Yhat + get_Yhat(i_fit)
+          m_prev <- cbind(m_prev, matrix(i_fit$m, ncol = 1))
+          l_fit_weighted_new[[r]] <- i_fit
+        }
+        
+        # check convergence
+        wt_estimate_new <- 
+          estimate_wt(X = X, Yhat = Yhat)
+        if(abs(wt_estimate_new$phi - wt_estimate$phi) < control$abs_tol | 
+           abs(wt_estimate_new$phi - wt_estimate$phi) / 
+           (abs(wt_estimate$phi) + control$abs_tol) < control$rel_tol) {
+          break
+        }
+        
+        wt <- wt_estimate$wt
+        Yhat <- array(0, dim(X))
+        m_prev <- matrix(ncol = 0,
+                         nrow = dim(X)[1])
+        l_fit_weighted <- l_fit_weighted_new
+        wt_estimate <- wt_estimate_new
+        i_outer_iter <- i_outer_iter + 1
+      }
+      
+      l_fit_weighted <- l_fit_weighted_new
+    }
   }
   
   # reorder lambda
@@ -121,6 +196,7 @@ control_microTensor <- function(
   rel_tol = 1e-4,
   maxit = 1000,
   init = "cp",
+  phi_iter = 0,
   debug_dir = NULL,
   verbose = TRUE
 ) {
@@ -130,6 +206,7 @@ control_microTensor <- function(
        rel_tol = rel_tol,
        maxit = maxit,
        init = init,
+       phi_iter = phi_iter,
        debug_dir = debug_dir,
        verbose = verbose)
 }
