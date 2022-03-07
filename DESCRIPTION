@@ -13,7 +13,8 @@ VignetteBuilder: knitr
 Depends: R (>= 4.0.0)
 Imports: 
   Rcpp,
-  RcppArmadillo
+  RcppArmadillo,
+  rTensor
 LinkingTo: 
   Rcpp,
   RcppArmadillo
