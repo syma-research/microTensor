@@ -1,7 +1,7 @@
-# microTensor: Dimension Reduction for Longitudinal Microbiome Data
+# microTensor: Tensor Decomposition for Longitudinal Microbiome Data
 
 This repository contains the method implementation and analysis scripts used
-for the paper "A Dimension Reduction Model For Longitudinal Microbiome Studies",
+for the paper "A Tensor Decomposition Model For Longitudinal Microbiome Studies",
 by Siyuan Ma and Hongzhe Li.
  
 This is the main branch, which is used for the software and analysis used in the
@@ -54,4 +54,4 @@ To use this repo to reproduce our paper:
       was used for testing on the correlated loadings identified by PCA.
     
     
-Contact: [Siyuan Ma](syma.research@gmail.com)
+Contact: Siyuan Ma <syma.research@gmail.com>
