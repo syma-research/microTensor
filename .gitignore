@@ -7,6 +7,4 @@ r_batchtools_reg/*
 results/*
 tables/*
 unit_tests/*
-data/*
-rmd/*
 *.Rproj

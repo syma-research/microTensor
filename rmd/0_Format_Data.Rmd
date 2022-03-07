@@ -38,7 +38,7 @@ taxa_bacteria <- rownames(mat_abd) %>%
 mat_abd <- mat_abd[taxa_bacteria, ]
 
 # filter for abundance
-mat_abd <- mat_abd[apply(mat_abd > 1e-5, 1, sum) > 5, ]
+mat_abd <- mat_abd[apply(mat_abd >= 1e-5, 1, sum) >= 5, ]
 which_allzero <- apply(mat_abd == 0, 2, all)
 mat_abd <- mat_abd[, !which_allzero]
 df_samples <- df_samples[!which_allzero, ]

@@ -51,77 +51,6 @@ fit_pca <- microTensor::pca(X_array, R = 3)
 save(fit_pca, file = paste0(dir_output, "/fit_pca.RData"))
 ```
 
-```{r check R}
-set.seed(5)
-R <- 10
-fit_long <- microTensor::microTensor(
-  X = X_array, R = R, 
-  ortho_m = TRUE,
-  nn_t = FALSE,
-  weighted = TRUE,
-  control = list(
-    L_init = 3,
-    gamma = 2,
-    abs_tol = 1e-4,
-    rel_tol = 1e-4,
-    maxit = 5000,
-    verbose = FALSE))
-negLogLiks <- seq(1, R) %>% 
-  purrr::map_dbl(function(i_R){
-    Yhat <- microTensor::get_Yhat(
-      result = list(
-        lambda = fit_long$lambda[seq(1, i_R)],
-        m = fit_long$m[, seq(1, i_R), drop = FALSE],
-        s = fit_long$s[, seq(1, i_R), drop = FALSE],
-        t = fit_long$t[, seq(1, i_R), drop = FALSE]
-      )
-    )
-    microTensor::negLogLik_cpp(
-      X = X_array,
-      Yhat = Yhat,
-      wt = matrix(1, nrow = dim(X_array)[2], ncol = dim(X_array)[3]),
-      lambda = 0,
-      vm = rep(0, dim(X_array)[1]),
-      vs = rep(0, dim(X_array)[2]),
-      vt = rep(0, dim(X_array)[3])
-    )
-  })
-
-# zero
-negLogLiks <- 
-  c(microTensor::negLogLik_cpp(
-      X = X_array,
-      Yhat = array(0, dim(X_array)),
-      wt = matrix(1, nrow = dim(X_array)[2], ncol = dim(X_array)[3]),
-      lambda = 0,
-      vm = rep(0, dim(X_array)[1]),
-      vs = rep(0, dim(X_array)[2]),
-      vt = rep(0, dim(X_array)[3])
-    ),
-    negLogLiks)
-
-tb_plot <- tibble::tibble(
-  R = seq(0, R),
-  negLogLiks = negLogLiks
-) 
-  
-
-p <- tb_plot %>% 
-  ggplot(aes(x = R,
-             y = negLogLiks)) +
-  geom_point() +
-  geom_line() +
-  theme_bw() +
-  ylab("Negative log-likelihood") +
-  ggtitle("DIABIMMUNE R")
-save(fit_long, file = "results/DIABIMMUNE/fit_long.RData")
-ggsave(p, filename = "results/DIABIMMUNE/select_R.pdf",
-       width = 5, height = 5)
-
-```
-
-
-
 ```{r check goodness-of-fit}
 load(paste0(dir_output, "/fit_microTensor.RData"))
 load(paste0(dir_output, "/fit_ctf.RData"))
@@ -299,81 +228,6 @@ ggsave(p_main, file = "figures/figure7/figure_DIABIMMUNE.pdf",
        width = 12, height = 4.5)
 ```
 
-```{r check time trends}
-# df_subjects <- df_samples %>% 
-#   dplyr::group_by(subjectid) %>%
-#   dplyr::slice(1) %>% 
-#   dplyr::ungroup() %>% 
-#   dplyr::arrange(factor(subjectid, levels = dimnames(X_array)[[2]])) %>% 
-#   dplyr::select(subjectid, csection)
-# 
-# feature_bac <- dimnames(X_array)[[1]] %>% 
-#   stringr::str_subset("Dehalobacterium")
-# feature_fae <- dimnames(X_array)[[1]] %>% 
-#   stringr::str_subset("Barnesiella") %>% 
-#   {.[3]}
-# feature_bif <- dimnames(X_array)[[1]] %>% 
-#   stringr::str_subset("Desulfovibrio") %>% 
-#   {.[2]}
-# X_rel <- apply(X_array, c(2, 3), function(x) x / sum(x))
-# c(feature_bac, feature_fae, feature_bif) %>% 
-#   purrr::map2_dfr(
-#     c("Bacteroides", "Faecalibacterium", "Bifidobacterium"),
-#     function(feature_full, feature_name) {
-#       data.frame(X_rel[feature_full, , ], check.names = FALSE) %>% 
-#         tibble::rownames_to_column("subjectid") %>% 
-#         tidyr::pivot_longer(cols = -subjectid,
-#                             names_to = "month",
-#                             values_to = "rel_abd") %>% 
-#         dplyr::mutate(month = as.numeric(month)) %>% 
-#         dplyr::filter(!is.na(rel_abd)) %>% 
-#         dplyr::left_join(df_subjects, by = "subjectid") %>% 
-#         dplyr::mutate(feature = feature_name)
-#     }) %>% 
-#   dplyr::arrange(month) %>% 
-#   dplyr::mutate(month = forcats::as_factor(month)) %>% 
-#   ggplot(aes(x = month, y = rel_abd, color = csection)) +
-#   geom_boxplot() +
-#   facet_wrap(~feature, nrow = 3)
-# 
-# tb_loading <- microTensor::create_loading(fit_decomp = fit_microTensor,
-#                                           feature_names = feature_names,
-#                                           subject_names = subject_names,
-#                                           time_names = time_names,
-#                                           class = "sample")
-# 
-# tb_loading <- tb_loading %>% 
-#   dplyr::mutate(Time = as.integer(as.character(Time))) %>% 
-#   dplyr::left_join(df_samples %>% 
-#                      dplyr::group_by(subjectid) %>% 
-#                      dplyr::slice(1) %>% 
-#                      dplyr::ungroup(), 
-#                    by = c("Subject" = "subjectid")) 
-# 
-# r <- 2
-# tb_loading_avg <- tb_loading %>% 
-#   dplyr::group_by(Time, csection) %>% 
-#   dplyr::summarise(mean_loading = mean(!!sym(paste0("Axis ", r)), na.rm = TRUE),
-#                    se_loading = sd(!!sym(paste0("Axis ", r)), na.rm = TRUE) / sqrt(dplyr::n())) %>% 
-#   dplyr::ungroup()
-#     
-# p_time <- tb_loading_avg %>% 
-#   dplyr::filter(!is.na(csection)) %>% 
-#   ggplot(aes(x = Time, y = mean_loading,
-#              color = csection)) +
-#   geom_line(position = position_dodge(width = 0.5)) +
-#   geom_point(position = position_dodge(width = 0.5)) +
-#   geom_errorbar(aes(ymax = mean_loading + se_loading,
-#                     ymin = mean_loading - se_loading),
-#                 position = position_dodge(width = 0.5),
-#                 width = 0.5) +
-#   theme_bw() +
-#   labs(colour="Diet group") +
-#   xlab("Study day") +
-#   ylab("Group average sample loading") +
-#   ggtitle("")
-```
-
 ```{r supplementals}
 p_supps <- list(fit_pca,
                 fit_ctf) %>% 
@@ -493,140 +347,53 @@ list(fit_microTensor, fit_pca, fit_ctf) %>%
 ```
 
 ```{r visualize trajectory}
-percs <- fit_microTensor$lambda^2 / sum(fit_microTensor$lambda^2) * 100
-ps <- c(1, 2, 3) %>% 
-  purrr::map(function(r) {
-    # feature
-    df_m <- microTensor::create_loading(fit_microTensor,
-                                        feature_names = feature_names,
-                                        subject_names = subject_names,
-                                        time_names = time_names,
-                                        class = "feature") %>% 
-      dplyr::mutate(
-        feature_plot = 
-          microTensor::betterGeneraNames(mat_tax[, 3],
-                                         mat_tax[, 4],
-                                         mat_tax[, 5],
-                                         mat_tax[, 6])) %>% 
-      dplyr::mutate(m = !!sym(paste0("Axis ", r)))
-    
-    df_plot <- 
-      rbind(
-      df_m %>%
-        dplyr::arrange(-df_m[["m"]]) %>%
-        dplyr::slice(seq_len(5)),
-      df_m %>%
-        dplyr::arrange(df_m[["m"]]) %>%
-        dplyr::slice(seq_len(5)) %>%
-        {.[seq(5, 1), ]}
-    ) %>%
-      dplyr::mutate(feature_plot = factor(feature_plot, 
-                                          levels = rev(feature_plot)))
-    
-    p_feature <- df_plot %>% 
-      ggplot(aes(y = m, x = feature_plot)) +
-      geom_bar(stat = "identity") +
-      coord_flip() +
-      theme_bw() +
-      theme(axis.title.y = element_blank()) +
-      ylab("Feature loading") +
-      ggtitle(" ")
-    
-    # time trajectory
-    tb_loading <- microTensor::create_loading(fit_decomp = fit_microTensor,
-                                              feature_names = feature_names,
-                                              subject_names = subject_names,
-                                              time_names = time_names,
-                                              class = "sample")
-    
-    tb_loading <- tb_loading %>% 
-      dplyr::mutate(Time = as.integer(as.character(Time))) %>% 
-      dplyr::left_join(df_subjects, 
-                       by = c("Subject" = "subjectid")) 
-    
-    tb_loading_avg <- tb_loading %>% 
-      dplyr::mutate(`Birth mode` = ifelse(csection, "C-section", "Vaginal")) %>% 
-      dplyr::group_by(Time, `Birth mode`) %>% 
-      dplyr::summarise(mean_loading = mean(!!sym(paste0("Axis ", r)), na.rm = TRUE),
-                       sd_loading = sd(!!sym(paste0("Axis ", r)), na.rm = TRUE) /
-                         sqrt(dplyr::n())) %>% 
-      dplyr::ungroup() %>% 
-      dplyr::mutate(Month = Time - 1)
-    
-    p_time <- tb_loading_avg %>% 
-      dplyr::filter(!is.na(`Birth mode`)) %>% 
-      ggplot(aes(x = Month, y = mean_loading,
-                 color = `Birth mode`)) +
-      geom_line(position = position_dodge(width = 0.5)) +
-      geom_point(position = position_dodge(width = 0.5)) +
-      geom_errorbar(aes(ymax = mean_loading + sd_loading,
-                        ymin = mean_loading - sd_loading),
-                    position = position_dodge(width = 0.5),
-                    width = 0.5) +
-      theme_bw() +
-      ylab("Average sample loading") +
-      ggtitle("")
-    if(r == 1)
-      p_time <- p_time + 
-      theme(legend.position = c(0, 1),
-            legend.justification = c(0, 1),
-            legend.background = element_blank())
-    else 
-      p_time <- p_time + 
-      theme(legend.position = "none")
-    
-    return(list(p_feature,
-                p_time))
-  })
+load("data/DIABIMMUNE/df_samples.RData")
+df_subjects <- df_samples %>% 
+  dplyr::group_by(subjectid) %>% 
+  dplyr::slice(1) %>% 
+  dplyr::ungroup()
+load("data/DIABIMMUNE/X_array.RData")
+feature_names <- dimnames(X_array)[[1]]
+subject_names <- dimnames(X_array)[[2]]
+time_names <- dimnames(X_array)[[3]]
 
 
-p_graph <- cowplot::plot_grid(
-  ps[[1]][[1]] + ggtitle("Time trajectory"),
-  ps[[1]][[2]],
-  rel_widths = c(0.8, 1)
-)
+tb_loading <- microTensor::create_loading(fit_decomp = fit_microTensor,
+                                          feature_names = feature_names,
+                                          subject_names = subject_names,
+                                          time_names = time_names,
+                                          class = "sample")
+tb_loading <- tb_loading %>% 
+  dplyr::mutate(Time = as.integer(as.character(Time))) %>% 
+  dplyr::left_join(df_subjects, 
+                   by = c("Subject" = "subjectid")) 
 
-p_save <- ps[[1]][[2]] + ggtitle("Time trajectory")
-ggsave(p_save, filename = "figures/suppFigure/time_DIABIMMUNE.pdf",
+tb_loading_avg <- tb_loading %>% 
+  dplyr::mutate(`Birth mode` = ifelse(csection, "C-section", "Vaginal")) %>% 
+  dplyr::group_by(Time, `Birth mode`) %>% 
+  dplyr::summarise(mean_loading = mean(`Axis 1`, na.rm = TRUE),
+                   sd_loading = sd(`Axis 1`, na.rm = TRUE) /
+                     sqrt(dplyr::n())) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::mutate(Month = Time - 1)
+
+p_time <- tb_loading_avg %>% 
+  dplyr::filter(!is.na(`Birth mode`)) %>% 
+  ggplot(aes(x = Month, y = mean_loading,
+             color = `Birth mode`)) +
+  geom_line(position = position_dodge(width = 0.5)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymax = mean_loading + sd_loading,
+                    ymin = mean_loading - sd_loading),
+                position = position_dodge(width = 0.5),
+                width = 0.5) +
+  theme_bw() +
+  ylab("Average sample loading") +
+  ggtitle("Time trajectory") +
+  theme(legend.position = c(0, 1),
+        legend.justification = c(0, 1),
+        legend.background = element_blank())
+  
+ggsave(p_time, filename = "figures/suppFigure/time_DIABIMMUNE.pdf",
        width = 5, height = 4)
-
-p_main <- 
-  list(
-    cowplot::plot_grid(ps[[1]][[1]], ps[[2]][[1]], ps[[3]][[1]],
-                       ncol = 1,
-                       align = "v",
-                       labels = paste0(c("A", "B", "C"), ") Axis ", c(1, 2, 3),
-                                       " (", round(percs[c(1, 2, 3)], 2),
-                                       "%)")),
-    cowplot::plot_grid(ps[[1]][[2]], ps[[2]][[2]], ps[[3]][[2]],
-                       ncol = 1,
-                       align = "v")
-  ) %>% 
-  cowplot::plot_grid(plotlist = .,
-                     nrow = 1,
-                     align = "h", 
-                     rel_widths = c(1, 0.8))
-ggsave(p_main, file = "figures/figure6/figure_FARMM.pdf",
-       width = 11, height = 6)
-
-feature_check <- dimnames(X_array)[[1]] %>% 
-  stringr::str_subset("Bifido") %>% 
-  {.[1]}
-
-feature_check2 <- dimnames(X_array)[[1]] %>% 
-  stringr::str_subset("Christen") %>% 
-  {.[2]}
-
-X_norm <- apply(X_array, c(2, 3), function(x) x / sum(x))
-
-(X_norm[feature_check, , ])%>% 
-  as.matrix() %>% 
-  as.data.frame() %>% 
-  tibble::rownames_to_column("Subject") %>% 
-  tidyr::pivot_longer(cols = -Subject, names_to = "month", values_to = "abundance") %>% 
-  dplyr::mutate(Month = as.numeric(month) - 1) %>% 
-  dplyr::left_join(df_subjects, by = c("Subject" = "subjectid"))  %>% 
-  ggplot(aes(x = as.factor(Month), y = log10(abundance + 1e-5), color = csection)) +
-  geom_boxplot() +
-  geom_line()
 ```

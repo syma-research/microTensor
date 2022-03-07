@@ -145,11 +145,6 @@ one_job <- function(i_job) {
       }
     }
     
-    # sim_data <- list(ptilde = ptilde,
-    #                  ptilde_missing = ptilde_missing,
-    #                  X_array = X_array)
-    # save(sim_data, file = paste0(dir_output, "/sim_data_", ii_job, ".RData"))
-    
     if(i_tb_job$method == "microTensor") {
       time <- system.time(
         fit_decomp <- microTensor::microTensor(
@@ -182,8 +177,6 @@ one_job <- function(i_job) {
         p = params$p,
         X_array = X_array,
         R = 2)
-    # save(results_summary, 
-    #      file = paste0(dir_output, "/results_summary_", ii_job, ".RData"))
     if(i_tb_job$method == "microTensor") {
       results_summary_uw <- 
         microTensor::evaluate_fit(
@@ -192,8 +185,6 @@ one_job <- function(i_job) {
           X_array = X_array,
           R = 2)
     } 
-    # save(results_summary, 
-    #      file = paste0(dir_output, "/results_summary_", ii_job, "_unweighted.RData"))
     
     # evaluation of the simulated data
     zero_perc <- mean(X_array == 0)
@@ -218,14 +209,7 @@ one_job <- function(i_job) {
         mat_L1_pnorm[j, k] <- 
       mean(abs(p_norm[, j, k] - params$p[, j, k]) / params$p[, j, k])
     
-    # sim_summary <- list(zero_perc = zero_perc,
-    #                     median_depth = median_depth,
-    #                     mat_L1_ptilde = mat_L1_ptilde,
-    #                     mat_L1_pnorm = mat_L1_pnorm)
-    # save(sim_summary, 
-    #      file = paste0(dir_output, "/sim_summary_", ii_job, ".RData"))
-    
-    # save particular runs to calcuate feature level statistics
+    # save particular runs to calculate feature level statistics
     if(i_tb_job$alpha0 == max(tb_job$alpha0) &
        i_tb_job$median_depth == 1e4 &
        i_tb_job$t_missing == 0 &
@@ -264,11 +248,9 @@ tb_ids <- batchtools::batchMap(one_job,
 batchtools::batchExport(list("dir_output" = dir_output,
                              "n_job_each" = n_job_each))
 ncpus <- 1
-partition <- "janson,janson_cascade"
 walltime <- 3600
 batchtools::submitJobs(ids = seq(1, 10),
                        resources =  list(ncpus = ncpus,
-                                         partition = partition,
                                          walltime = walltime))
 batchtools::submitJobs(ids = seq(11, n_job / n_job_each),
                        resources =  list(ncpus = ncpus,
@@ -278,6 +260,32 @@ batchtools::submitJobs(ids = seq(11, n_job / n_job_each),
 
 ```{r summarize results}
 library(ggplot2)
+
+load(paste0(dir_output, "/tb_job.RData"))
+l_statistics <- seq(1, nrow(tb_job) / n_job_each) %>% 
+  purrr::map(~ {
+    load(paste0(dir_output, "/l_statistics_", .x, ".RData"))
+    l_statistics
+  }) %>% 
+  purrr::reduce(c)
+
+# Main figure
+tb_results <- tb_job %>% 
+  dplyr::mutate(mean_L1_relative = l_statistics %>%
+                  purrr::map_dbl("mean_L1_relative")) %>% 
+  rbind(tb_job %>% 
+          dplyr::filter(method == "microTensor") %>% 
+          {dplyr::mutate(
+            ., 
+            mean_L1_relative = 
+              l_statistics[.$i_job] %>%
+              purrr::map_dbl("mean_l1_relative_uw"),
+            method = "microTensor (uw)")})
+tb_plot_results <- tb_results %>%
+  dplyr::group_by(alpha0, t_missing, median_depth, method, n) %>%
+  dplyr::summarise(log10_L1_relative = mean(log10(mean_L1_relative)),
+                   sd_log10_L1_relative = sd(log10(mean_L1_relative)) / sqrt(dplyr::n())) %>% 
+  dplyr::ungroup()
 
 colors <- smar:::gg_color_hue(
   values = c("CTF",

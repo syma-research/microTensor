@@ -139,11 +139,6 @@ one_job <- function(i_job) {
       }
     }
     
-    # sim_data <- list(ptilde = ptilde,
-    #                  ptilde_missing = ptilde_missing,
-    #                  X_array = X_array)
-    # save(sim_data, file = paste0(dir_output, "/sim_data_", ii_job, ".RData"))
-    
     if(i_tb_job$method == "microTensor") {
       time <- system.time(
         fit_decomp <- microTensor::microTensor(
@@ -176,8 +171,6 @@ one_job <- function(i_job) {
         p = params$p,
         X_array = X_array,
         R = 2)
-    # save(results_summary, 
-    #      file = paste0(dir_output, "/results_summary_", ii_job, ".RData"))
     if(i_tb_job$method == "microTensor") {
       results_summary_uw <- 
         microTensor::evaluate_fit(
@@ -186,8 +179,6 @@ one_job <- function(i_job) {
           X_array = X_array,
           R = 2)
     } 
-    # save(results_summary, 
-    #      file = paste0(dir_output, "/results_summary_", ii_job, "_unweighted.RData"))
     
     # evaluation of the simulated data
     zero_perc <- mean(X_array == 0)
@@ -211,14 +202,7 @@ one_job <- function(i_job) {
       for(k in seq(1, ncol(mat_L1_pnorm)))
         mat_L1_pnorm[j, k] <- 
       mean(abs(p_norm[, j, k] - params$p[, j, k]) / params$p[, j, k])
-    
-    # sim_summary <- list(zero_perc = zero_perc,
-    #                     median_depth = median_depth,
-    #                     mat_L1_ptilde = mat_L1_ptilde,
-    #                     mat_L1_pnorm = mat_L1_pnorm)
-    # save(sim_summary, 
-    #      file = paste0(dir_output, "/sim_summary_", ii_job, ".RData"))
-    
+
     # save particular runs to calcuate feature level statistics
     if(i_tb_job$sd == min(tb_job$sd) &
        i_tb_job$median_depth == 1e4 &
@@ -257,11 +241,9 @@ tb_ids <- batchtools::batchMap(one_job,
 batchtools::batchExport(list("dir_output" = dir_output,
                              "n_job_each" = n_job_each))
 ncpus <- 1
-partition <- "janson,janson_cascade"
 walltime <- 3600
 batchtools::submitJobs(ids = seq(1, 10),
                        resources =  list(ncpus = ncpus,
-                                         partition = partition,
                                          walltime = walltime))
 batchtools::submitJobs(ids = seq(11, n_job / n_job_each),
                        resources =  list(ncpus = ncpus,

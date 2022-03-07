@@ -4,6 +4,7 @@
 ^figures/*
 ^results/*
 ^rmd/*
+^tables/*
 ^r_batchtools_reg/*
 ^unit\_tests/*
 ^README\.md

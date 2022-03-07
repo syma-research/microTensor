@@ -132,7 +132,6 @@ one_job <- function(i_job) {
         metadata_matrix = mat_metadata, 
         median_read_depth = i_tb_job$median_depth, 
         verbose = FALSE)
-    # save(sim_SparseDOSSA2, file = paste0(dir_output, "/sim_", ii_job, ".RData"))
     
     mat_count_sim <- sim_SparseDOSSA2$simulated_data
     mat_norm <- apply(mat_count_sim, 2, function(x) x / sum(x))
@@ -147,7 +146,6 @@ one_job <- function(i_job) {
     # fit PCA
     fit_pca <- microTensor::pca(
       X = X_array_sim, R = i_tb_job$R)
-    # save(fit_pca, file = paste0(dir_output, "/fit_pca_", ii_job, ".RData"))
     
     # fit ctf
     fit_ctf <- microTensor::ctf(
@@ -222,11 +220,9 @@ batchtools::batchExport(list("dir_output" = dir_output,
                              "feature_up" = feature_up,
                              "feature_down" = feature_down))
 ncpus <- 1
-partition <- "janson,janson_cascade"
 walltime <- 3600
 batchtools::submitJobs(ids = seq(1, 10),
                        resources =  list(ncpus = ncpus,
-                                         partition = partition,
                                          walltime = walltime))
 batchtools::submitJobs(ids = seq(11, n_job / n_job_each),
                        resources =  list(ncpus = ncpus,
@@ -278,8 +274,7 @@ colors <- c("PCA" = "black",
 p <- tb_summary %>% 
   dplyr::mutate(method = factor(method, 
                                 levels = names(colors))) %>% 
-  dplyr::filter(n_s == 100, 
-                strength_disease < 1.5) %>% 
+  dplyr::filter(n_s == 100) %>% 
   ggplot(aes(x = strength_disease,
              y = power,
              color = method)) +
