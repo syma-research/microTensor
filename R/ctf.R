@@ -1,4 +1,3 @@
-# perform CTF as described in Martino et al., NatBiotech, 2020
 ctf <- function(X, R,
                 control = list()) {
   control <- do.call(control_microTensor, control)

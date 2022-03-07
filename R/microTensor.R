@@ -1,16 +1,88 @@
 #' Tensor decomposition for longitudinal microbiome data
+#' 
+#' \code{microTensor} takes as input a three-dimensional array of longitudinal
+#' microbiome sequence count observations (\code{X}), and performs dimension
+#' reduction by approximating the observations with \code{R} factors, each
+#' characterized by the outer product of a rank-1 microbe-, subject-, and 
+#' time-specific loadings.
+#' 
+#' \code{control} should be provided as a named list, with (some of) the 
+#' following components:
+#' \describe{
+#' \item{gamma}{gamma parameter for the inner-loop gradient descent algorithm.}
+#' \item{L_init}{initial L parameter for the inner-loop gradient descent 
+#' algorithm.}
+#' \item{abs_tol}{absolute tolerance for algorithm convergence.}
+#' \item{rel_tol}{relative tolerance for algorithm convergence.}
+#' \item{maxit}{maximum allowed number of outer algorithm iterations.}
+#' \item{init}{initialization strategy. \code{"cp"} (default) is the canonical 
+#' polyadic decomposition. \code{"ctf"} is initialization with the 
+#' compositional tensor factorization method proposed in Martino et al, Nature
+#' Biotechnology, 2021. \code{"zero"} is initializing at all zero values for the
+#' parameters (all samples are uniform).}
+#' \item{phi_iter}{non-negative integer indicating if additional iterations over
+#' the dispersion parameter \code{phi} should be performed for weighted 
+#' quasi-likelihood estimation. The default is \code{0} which indicates no
+#' additional iterations. A positive integer indicates the maximum additional
+#' iterations.}
+#' \item{debug_dir}{character string indicating the directory to store 
+#' intermediate fitted results, for debugging purposes.}
+#' \item{verbose}{indicates if verbose fitting progress information should be
+#' printed. Default to \code{TRUE}.}
+#' }
+#' 
+#' @param X three-dimensional array of longitudinal microbial sequencing counts.
+#' First dimension corresponds to microbes, second subjects, and third time points.
+#' @param R the total number of factors (dimensions) to decompose \code{X} into.
+#' @param weighted indicates if quasi-likelihood weighted estimates should be
+#' performed. This is strongly encouraged, and is default to \code{TRUE}.
+#' @param ortho_m indicates if the identified microbial loadings should be
+#' constrained to be orthonormal. Orthonormal microbial loadings provide better
+#' interpretations for variance decomposition among the identified factors. 
+#' Default to \code{TRUE}.
+#' @param nn_t indicates if the time loadings should be constrained to be 
+#' non-negative. Non-negative time loadings can provide more interpretable 
+#' effects on the longitudinal trend effects in the identified factors. Default
+#' to \code{TRUE}.
+#' @param control a named list of additional control parameters. See details.
 #'
-#' @param X 
-#' @param R 
-#' @param weighted 
-#' @param ortho_m 
-#' @param nn_t 
-#' @param control 
-#'
-#' @return
+#' @return a list, with the following components:
+#' \describe{
+#' \item{results}{
+#' list of fitted parameters. If \code{weighted} is set to \code{TRUE}, this 
+#' returns the quasi-likelihood weighted estimates, otherwise the unweighted
+#' estimates are returned. The components include:
+#' \describe{
+#' \item{lambda}{vector of length \code{R} for the fitted singular value for
+#' each factor.
+#' }
+#' \item{m}{matrix of \code{R} columns for the fitted microbial loadings.
+#' }
+#' \item{s}{matrix of \code{R} columns for the fitted subject loadings.
+#' }
+#' \item{t}{matrix of \code{R} columns for the fitted time point loadings.
+#' }
+#' \item{fitting}{list of additional model fitting information, including the
+#' fitted objective function value, number of outer iterations, and algorithm
+#' convergence information.
+#' }
+#' }
+#' }
+#' \item{wt_estimate}{
+#' list of fitted quasi-likelihood re-weighting parameters, including
+#' \describe{
+#' \item{wt}{three-dimensional array for the per-sample weights. This has the
+#' same dimensionality as \code{X}.
+#' }
+#' \item{phi}{estimated model dispersion parameter.
+#' }
+#' }
+#' If \code{weighted} is \code{FALSE}, then this component is empty.
+#' }
+#' }
+
 #' @export
-#'
-#' @examples
+#' @author Siyuan Ma, \email{syma.research@gmail.com}
 microTensor <- function(X, R,
                         weighted = TRUE,
                         ortho_m = TRUE,
@@ -178,17 +250,14 @@ microTensor <- function(X, R,
   }
   
   # reorder lambda
-  results_unweighted <- extract_fits(l_fit_unweighted)
   if(!weighted)
-    return(results_unweighted)
+    return(list(results = extract_fits(l_fit_unweighted),
+                wt_estimate = NULL))
   
-  results_weighted <- extract_fits(l_fit_weighted)
-  return(c(results_weighted,
-           list(wt_estimate = wt_estimate,
-                unweighted = results_unweighted)))
+  return(list(results = extract_fits(l_fit_weighted),
+              wt_estimate = wt_estimate))
 }
 
-# helper for creating control parameters
 control_microTensor <- function(
   gamma = 2, 
   L_init = 2,
