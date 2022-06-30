@@ -380,9 +380,10 @@ tb_loading_avg <- tb_loading %>%
 p_time <- tb_loading_avg %>% 
   dplyr::filter(!is.na(`Birth mode`)) %>% 
   ggplot(aes(x = Month, y = mean_loading,
-             color = `Birth mode`)) +
+             color = `Birth mode`,
+             shape = `Birth mode`)) +
   geom_line(position = position_dodge(width = 0.5)) +
-  geom_point(position = position_dodge(width = 0.5)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
   geom_errorbar(aes(ymax = mean_loading + sd_loading,
                     ymin = mean_loading - sd_loading),
                 position = position_dodge(width = 0.5),

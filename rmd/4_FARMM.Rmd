@@ -201,15 +201,15 @@ ps <- c(1, 2) %>%
     p_time <- tb_loading_avg %>% 
       dplyr::filter(!is.na(study_group)) %>% 
       ggplot(aes(x = Time, y = mean_loading,
-                 color = study_group)) +
+                 color = study_group, shape = study_group)) +
       geom_line(position = position_dodge(width = 0.5)) +
-      geom_point(position = position_dodge(width = 0.5)) +
+      geom_point(position = position_dodge(width = 0.5), size = 2) +
       geom_errorbar(aes(ymax = mean_loading + sd_loading,
                         ymin = mean_loading - sd_loading),
                     position = position_dodge(width = 0.5),
                     width = 0.5) +
       theme_bw() +
-      labs(colour="Diet group") +
+      labs(colour="Diet group", shape = "Diet group") +
       xlab("Study day") +
       ylab("Group average sample loading") +
       ggtitle("")
@@ -327,15 +327,15 @@ p_supps <- list(fit_pca,
           p_time <- tb_loading_avg %>% 
             dplyr::filter(!is.na(study_group)) %>% 
             ggplot(aes(x = Time, y = mean_loading,
-                       color = study_group)) +
+                       color = study_group, shape = study_group)) +
             geom_line(position = position_dodge(width = 0.5)) +
-            geom_point(position = position_dodge(width = 0.5)) +
+            geom_point(position = position_dodge(width = 0.5), size = 2) +
             geom_errorbar(aes(ymax = mean_loading + sd_loading,
                               ymin = mean_loading - sd_loading),
                           position = position_dodge(width = 0.5),
                           width = 0.5) +
             theme_bw() +
-            labs(colour="Diet group") +
+            labs(colour="Diet group", shape = "Diet group") +
             xlab("Study day") +
             ylab("Group average sample loading") +
             ggtitle("")

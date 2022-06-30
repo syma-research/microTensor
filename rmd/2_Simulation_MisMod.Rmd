@@ -309,14 +309,13 @@ tb_plot_results <- tb_plot_results %>%
                   forcats::as_factor())
 p_figure <- tb_plot_results %>%
   dplyr::filter(n == 1) %>% 
-  ggplot(aes(x = sd, y = log10_L1_relative, color = method)) +
-  geom_point(position = position_dodge(width = 0.05)) +
+  ggplot(aes(x = sd, y = log10_L1_relative, color = method, shape = method)) +
+  geom_point(position = position_dodge(width = 0.05), size = 2) +
   geom_errorbar(aes(ymin = log10_L1_relative - sd_log10_L1_relative,
                     ymax = log10_L1_relative + sd_log10_L1_relative),
                 position = position_dodge(width = 0.05)) +
   geom_line(position = position_dodge(width = 0.05)) +
-  scale_color_manual(values = colors,
-                     name = "Method") +
+  scale_color_manual(values = colors) +
   facet_wrap(~ level_plot_label, nrow = 2) +
   theme_bw() +
   theme(legend.position = "bottom", 
@@ -328,14 +327,13 @@ p_figure <- tb_plot_results %>%
                         "|/", p[ijk], ")")))
 p_figure2 <- tb_plot_results %>%
   dplyr::filter(n == 2) %>% 
-  ggplot(aes(x = sd, y = log10_L1_relative, color = method)) +
-  geom_point(position = position_dodge(width = 0.05)) +
+  ggplot(aes(x = sd, y = log10_L1_relative, color = method, shape = method)) +
+  geom_point(position = position_dodge(width = 0.05), size = 2) +
   geom_errorbar(aes(ymin = log10_L1_relative - sd_log10_L1_relative,
                     ymax = log10_L1_relative + sd_log10_L1_relative),
                 position = position_dodge(width = 0.05)) +
   geom_line(position = position_dodge(width = 0.05)) +
-  scale_color_manual(values = colors,
-                     name = "Method") +
+  scale_color_manual(values = colors) +
   facet_wrap(~ level_plot_label, nrow = 2) +
   theme_bw() +
   theme(legend.position = "bottom", 
@@ -447,9 +445,11 @@ p_sparse <- tb_eval %>%
                   factor(levels = names(colors))) %>% 
   ggplot(aes(x = mean_x_zero,
              y = rel_diff,
-             color = method)) +
+             color = method,
+             shape = method)) +
   geom_point() +
   scale_color_manual(values = colors[-2], name = "Method") +
+  scale_shape_manual(values = c("CTF" = 19, "microTensor" = 15), name = "Method") +
   xlab("Per-feature sparsity") +
   ylab("Per-feature log10 relative difference") +
   theme_bw() 
